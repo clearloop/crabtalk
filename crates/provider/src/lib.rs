@@ -6,7 +6,7 @@ use futures::stream::Stream;
 
 pub use registry::ProviderRegistry;
 
-mod openai_compat;
+mod provider;
 mod registry;
 
 /// A configured provider instance, ready to dispatch requests.
@@ -36,17 +36,11 @@ impl Provider {
     ) -> Result<ChatCompletionResponse, Error> {
         match self {
             Provider::OpenAiCompat { base_url, api_key } => {
-                openai_compat::chat_completion(client, base_url, api_key, request).await
+                provider::openai::chat_completion(client, base_url, api_key, request).await
             }
-            Provider::Anthropic { .. } => Err(Error::Internal(
-                "anthropic translation not yet implemented".into(),
-            )),
-            Provider::Google { .. } => Err(Error::Internal(
-                "google translation not yet implemented".into(),
-            )),
-            Provider::Bedrock { .. } => Err(Error::Internal(
-                "bedrock translation not yet implemented".into(),
-            )),
+            Provider::Anthropic { .. } => Err(provider::anthropic::not_implemented("chat")),
+            Provider::Google { .. } => Err(provider::google::not_implemented("chat")),
+            Provider::Bedrock { .. } => Err(provider::bedrock::not_implemented("chat")),
         }
     }
 
@@ -58,17 +52,11 @@ impl Provider {
     ) -> Result<EmbeddingResponse, Error> {
         match self {
             Provider::OpenAiCompat { base_url, api_key } => {
-                openai_compat::embedding(client, base_url, api_key, request).await
+                provider::openai::embedding(client, base_url, api_key, request).await
             }
-            Provider::Anthropic { .. } => Err(Error::Internal(
-                "anthropic does not support embeddings".into(),
-            )),
-            Provider::Google { .. } => Err(Error::Internal(
-                "google embedding not yet implemented".into(),
-            )),
-            Provider::Bedrock { .. } => Err(Error::Internal(
-                "bedrock embedding not yet implemented".into(),
-            )),
+            Provider::Anthropic { .. } => Err(provider::anthropic::not_implemented("embedding")),
+            Provider::Google { .. } => Err(provider::google::not_implemented("embedding")),
+            Provider::Bedrock { .. } => Err(provider::bedrock::not_implemented("embedding")),
         }
     }
 
@@ -81,17 +69,11 @@ impl Provider {
     ) -> Result<impl Stream<Item = Result<ChatCompletionChunk, Error>>, Error> {
         match self {
             Provider::OpenAiCompat { base_url, api_key } => {
-                openai_compat::chat_completion_stream(client, base_url, api_key, request).await
+                provider::openai::chat_completion_stream(client, base_url, api_key, request).await
             }
-            Provider::Anthropic { .. } => Err(Error::Internal(
-                "anthropic streaming not yet implemented".into(),
-            )),
-            Provider::Google { .. } => Err(Error::Internal(
-                "google streaming not yet implemented".into(),
-            )),
-            Provider::Bedrock { .. } => Err(Error::Internal(
-                "bedrock streaming not yet implemented".into(),
-            )),
+            Provider::Anthropic { .. } => Err(provider::anthropic::not_implemented("streaming")),
+            Provider::Google { .. } => Err(provider::google::not_implemented("streaming")),
+            Provider::Bedrock { .. } => Err(provider::bedrock::not_implemented("streaming")),
         }
     }
 }
