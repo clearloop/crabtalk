@@ -1,0 +1,15 @@
+[package]
+name = "crabtalk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "crabtalk"
+path = "src/bin/main.rs"
+
+[dependencies]
