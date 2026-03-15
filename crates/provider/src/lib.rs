@@ -2,7 +2,7 @@ use crabtalk_core::{
     ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, EmbeddingRequest,
     EmbeddingResponse, Error,
 };
-use futures::stream::Stream;
+use futures::stream::{BoxStream, StreamExt};
 
 pub use registry::ProviderRegistry;
 
@@ -38,7 +38,9 @@ impl Provider {
             Provider::OpenAiCompat { base_url, api_key } => {
                 provider::openai::chat_completion(client, base_url, api_key, request).await
             }
-            Provider::Anthropic { .. } => Err(provider::anthropic::not_implemented("chat")),
+            Provider::Anthropic { api_key } => {
+                provider::anthropic::chat_completion(client, api_key, request).await
+            }
             Provider::Google { .. } => Err(provider::google::not_implemented("chat")),
             Provider::Bedrock { .. } => Err(provider::bedrock::not_implemented("chat")),
         }
@@ -61,17 +63,29 @@ impl Provider {
     }
 
     /// Send a streaming chat completion request.
-    /// Returns an async stream of parsed SSE chunks.
+    /// Returns a boxed async stream of parsed SSE chunks.
     pub async fn chat_completion_stream(
         &self,
         client: &reqwest::Client,
         request: &ChatCompletionRequest,
-    ) -> Result<impl Stream<Item = Result<ChatCompletionChunk, Error>> + use<>, Error> {
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
         match self {
             Provider::OpenAiCompat { base_url, api_key } => {
-                provider::openai::chat_completion_stream(client, base_url, api_key, request).await
+                let s =
+                    provider::openai::chat_completion_stream(client, base_url, api_key, request)
+                        .await?;
+                Ok(s.boxed())
             }
-            Provider::Anthropic { .. } => Err(provider::anthropic::not_implemented("streaming")),
+            Provider::Anthropic { api_key } => {
+                let s = provider::anthropic::chat_completion_stream(
+                    client,
+                    api_key,
+                    request,
+                    &request.model,
+                )
+                .await?;
+                Ok(s.boxed())
+            }
             Provider::Google { .. } => Err(provider::google::not_implemented("streaming")),
             Provider::Bedrock { .. } => Err(provider::bedrock::not_implemented("streaming")),
         }
