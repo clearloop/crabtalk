@@ -17,6 +17,9 @@ pub struct GatewayConfig {
     /// Storage backend configuration.
     #[serde(default)]
     pub storage: Option<StorageConfig>,
+    /// Model name aliases. Maps friendly names to canonical model names.
+    #[serde(default)]
+    pub aliases: HashMap<String, String>,
 }
 
 /// Configuration for a single LLM provider.
@@ -33,6 +36,20 @@ pub struct ProviderConfig {
     /// Model names served by this provider.
     #[serde(default)]
     pub models: Vec<String>,
+    /// Routing weight for weighted random selection. Higher = more traffic.
+    #[serde(default = "default_weight")]
+    pub weight: u16,
+    /// Max retries on transient errors before fallback. 0 disables retry.
+    #[serde(default = "default_max_retries")]
+    pub max_retries: u32,
+}
+
+fn default_weight() -> u16 {
+    1
+}
+
+fn default_max_retries() -> u32 {
+    2
 }
 
 /// Which provider implementation to use.

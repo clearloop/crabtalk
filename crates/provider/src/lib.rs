@@ -4,7 +4,7 @@ use crabtalk_core::{
 };
 use futures::stream::{BoxStream, StreamExt};
 
-pub use registry::ProviderRegistry;
+pub use registry::{Deployment, ProviderRegistry};
 
 mod provider;
 mod registry;
