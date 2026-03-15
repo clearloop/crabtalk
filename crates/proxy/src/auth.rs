@@ -1,3 +1,4 @@
+use crate::AppState;
 use axum::{
     Json,
     extract::{Request, State},
@@ -5,15 +6,23 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use crabtalk_core::ApiError;
+use crabtalk_core::{ApiError, Storage};
 
-use crate::AppState;
+/// Wrapper for the authenticated key name, inserted into request extensions.
+#[derive(Clone, Debug)]
+pub struct KeyName(pub Option<String>);
 
 /// Auth middleware: validates Bearer token against configured virtual keys.
 /// If no keys are configured, all requests pass through.
-pub async fn auth(State(state): State<AppState>, request: Request, next: Next) -> Response {
+/// Inserts `KeyName` into request extensions for downstream handlers.
+pub async fn auth<S: Storage + 'static>(
+    State(state): State<AppState<S>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
     // If no keys configured, skip auth entirely.
     if state.config.keys.is_empty() {
+        request.extensions_mut().insert(KeyName(None));
         return next.run(request).await;
     }
 
@@ -47,10 +56,9 @@ pub async fn auth(State(state): State<AppState>, request: Request, next: Next) -
         }
     };
 
-    // Check model access. We can't parse the body here without consuming it,
-    // so model-level access control is deferred to the handler layer.
-    // For now, key existence is sufficient.
-    let _ = key_config;
+    request
+        .extensions_mut()
+        .insert(KeyName(Some(key_config.name.clone())));
 
     next.run(request).await
 }

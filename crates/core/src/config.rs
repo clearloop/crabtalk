@@ -8,11 +8,15 @@ pub struct GatewayConfig {
     pub listen: String,
     /// Named provider configurations.
     pub providers: HashMap<String, ProviderConfig>,
-    /// Model name → provider routing.
-    pub models: HashMap<String, ModelRoute>,
     /// Virtual API keys for client authentication.
     #[serde(default)]
     pub keys: Vec<KeyConfig>,
+    /// Extension configurations. Each key is an extension name, value is its config.
+    #[serde(default)]
+    pub extensions: Option<toml::Value>,
+    /// Storage backend configuration.
+    #[serde(default)]
+    pub storage: Option<StorageConfig>,
 }
 
 /// Configuration for a single LLM provider.
@@ -26,6 +30,9 @@ pub struct ProviderConfig {
     /// Base URL override. OpenAI-compat providers have sensible defaults.
     #[serde(default)]
     pub base_url: Option<String>,
+    /// Model names served by this provider.
+    #[serde(default)]
+    pub models: Vec<String>,
 }
 
 /// Which provider implementation to use.
@@ -36,13 +43,6 @@ pub enum ProviderKind {
     Anthropic,
     Google,
     Bedrock,
-}
-
-/// Maps a model name to a provider.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelRoute {
-    /// Name of the provider in the `providers` table.
-    pub provider: String,
 }
 
 /// Virtual API key for client authentication.
@@ -56,6 +56,20 @@ pub struct KeyConfig {
     pub models: Vec<String>,
 }
 
+/// Storage backend configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageConfig {
+    /// Backend kind: "memory" (default) or "sqlite" (requires feature).
+    #[serde(default = "StorageConfig::default_kind")]
+    pub kind: String,
+}
+
+impl StorageConfig {
+    fn default_kind() -> String {
+        "memory".to_string()
+    }
+}
+
 impl GatewayConfig {
     /// Load config from a TOML file, expanding `${VAR}` patterns in string values.
     pub fn from_file(path: &Path) -> Result<Self, Box<dyn std::error::Error>> {
@@ -63,6 +77,17 @@ impl GatewayConfig {
         let expanded = expand_env_vars(&raw);
         let config: GatewayConfig = toml::from_str(&expanded)?;
         Ok(config)
+    }
+
+    /// Flatten all providers' model lists into a model_name → provider_name map.
+    pub fn models(&self) -> HashMap<String, String> {
+        let mut map = HashMap::new();
+        for (provider_name, provider_config) in &self.providers {
+            for model in &provider_config.models {
+                map.insert(model.clone(), provider_name.clone());
+            }
+        }
+        map
     }
 }
 
