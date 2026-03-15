@@ -66,7 +66,7 @@ pub async fn chat_completion_stream(
     base_url: &str,
     api_key: &str,
     request: &ChatCompletionRequest,
-) -> Result<impl Stream<Item = Result<ChatCompletionChunk, Error>>, Error> {
+) -> Result<impl Stream<Item = Result<ChatCompletionChunk, Error>> + use<>, Error> {
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
     let resp = client
         .post(&url)

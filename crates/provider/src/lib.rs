@@ -66,7 +66,7 @@ impl Provider {
         &self,
         client: &reqwest::Client,
         request: &ChatCompletionRequest,
-    ) -> Result<impl Stream<Item = Result<ChatCompletionChunk, Error>>, Error> {
+    ) -> Result<impl Stream<Item = Result<ChatCompletionChunk, Error>> + use<>, Error> {
         match self {
             Provider::OpenAiCompat { base_url, api_key } => {
                 provider::openai::chat_completion_stream(client, base_url, api_key, request).await
