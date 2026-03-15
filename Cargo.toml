@@ -10,7 +10,6 @@ description = "High-performance LLM API gateway"
 repository = "https://github.com/clearloop/crabtalk"
 keywords = ["llm", "gateway", "proxy", "openai"]
 categories = ["web-programming::http-server"]
-readme = "README.md"
 
 [workspace.dependencies]
 crabtalk-core = { version = "0.0.2", path = "crates/core" }
