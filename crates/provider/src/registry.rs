@@ -61,6 +61,33 @@ impl ProviderRegistry {
                         "provider '{provider_name}' (bedrock) is not yet supported",
                     )));
                 }
+                ProviderKind::Ollama => {
+                    let base_url = provider_config
+                        .base_url
+                        .clone()
+                        .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
+                    Provider::OpenAiCompat {
+                        base_url,
+                        api_key: provider_config.api_key.clone(),
+                    }
+                }
+                ProviderKind::Azure => {
+                    if provider_config.api_key.is_empty() {
+                        return Err(Error::Config(format!(
+                            "provider '{provider_name}' (azure) requires an api_key",
+                        )));
+                    }
+                    let base_url = provider_config.base_url.clone().unwrap_or_default();
+                    let api_version = provider_config
+                        .api_version
+                        .clone()
+                        .unwrap_or_else(|| "2024-02-15-preview".to_string());
+                    Provider::Azure {
+                        base_url,
+                        api_key: provider_config.api_key.clone(),
+                        api_version,
+                    }
+                }
             };
 
             let deployment = Deployment {

@@ -42,6 +42,9 @@ pub struct ProviderConfig {
     /// Max retries on transient errors before fallback. 0 disables retry.
     #[serde(default = "default_max_retries")]
     pub max_retries: u32,
+    /// API version string, used by Azure OpenAI.
+    #[serde(default)]
+    pub api_version: Option<String>,
 }
 
 fn default_weight() -> u16 {
@@ -60,6 +63,8 @@ pub enum ProviderKind {
     Anthropic,
     Google,
     Bedrock,
+    Ollama,
+    Azure,
 }
 
 /// Virtual API key for client authentication.
