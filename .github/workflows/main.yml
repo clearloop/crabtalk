@@ -1,0 +1,43 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Toolchain
+        run: rustup update stable && rustup default stable
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+      - uses: taiki-e/install-action@sccache
+      - uses: taiki-e/install-action@nextest
+
+      # - name: Run Tests
+      #   run: cargo nextest run --workspace --no-fail-fast --release
+
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Toolchain
+        run: |
+          rustup update stable && rustup default stable
+          rustup component add clippy rustfmt
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+      - uses: taiki-e/install-action@sccache
+      - name: Format
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --all -- -D warnings
