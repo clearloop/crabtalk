@@ -1,6 +1,22 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, env, path::Path};
 
+/// Per-model token pricing configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PricingConfig {
+    /// Cost per million prompt tokens in USD.
+    pub prompt_cost_per_million: f64,
+    /// Cost per million completion tokens in USD.
+    pub completion_cost_per_million: f64,
+}
+
+/// Compute the cost in USD for a given number of prompt and completion tokens.
+pub fn cost(pricing: &PricingConfig, prompt_tokens: u32, completion_tokens: u32) -> f64 {
+    (prompt_tokens as f64 * pricing.prompt_cost_per_million
+        + completion_tokens as f64 * pricing.completion_cost_per_million)
+        / 1_000_000.0
+}
+
 /// Top-level gateway configuration, loaded from TOML.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatewayConfig {
@@ -20,6 +36,9 @@ pub struct GatewayConfig {
     /// Model name aliases. Maps friendly names to canonical model names.
     #[serde(default)]
     pub aliases: HashMap<String, String>,
+    /// Per-model token pricing for cost tracking and budget enforcement.
+    #[serde(default)]
+    pub pricing: HashMap<String, PricingConfig>,
 }
 
 /// Configuration for a single LLM provider.
@@ -84,6 +103,9 @@ pub struct StorageConfig {
     /// Backend kind: "memory" (default) or "sqlite" (requires feature).
     #[serde(default = "StorageConfig::default_kind")]
     pub kind: String,
+    /// File path for persistent backends (required for sqlite).
+    #[serde(default)]
+    pub path: Option<String>,
 }
 
 impl StorageConfig {

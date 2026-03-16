@@ -128,13 +128,19 @@ pub async fn chat_completions<S: Storage + 'static>(
         }
         error_response(e)
     } else {
-        // Non-streaming: retry + fallback with full response.
+        // Non-streaming: check cache first.
+        for ext in state.extensions.iter() {
+            if let Some(cached) = ext.on_cache_lookup(&request).await {
+                return Json(cached).into_response();
+            }
+        }
+
         let mut last_err = None;
         for deployment in &deployments {
             match try_chat_with_retries(deployment, &state.client, &request).await {
                 Ok(resp) => {
                     for ext in state.extensions.iter() {
-                        ext.on_response(&ctx, &resp).await;
+                        ext.on_response(&ctx, &request, &resp).await;
                     }
                     return Json(resp).into_response();
                 }

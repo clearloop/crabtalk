@@ -31,3 +31,5 @@ rand = "0.9"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
+rusqlite = { version = "0.32", features = ["bundled"] }
