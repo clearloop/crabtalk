@@ -471,8 +471,10 @@ fn translate_response(resp: AnthropicResponse) -> ChatCompletionResponse {
                 extra: Default::default(),
             },
             finish_reason: map_stop_reason(&resp.stop_reason),
+            logprobs: None,
         }],
         usage: Some(map_usage(&resp.usage)),
+        system_fingerprint: None,
     }
 }
 
@@ -637,10 +639,12 @@ fn anthropic_sse_stream(
                             ));
                         }
                         "content_block_start" => {
-                            if let Some(cb) = &event.content_block {
-                                if cb.kind == "thinking" {
-                                    state.is_thinking_block = true;
-                                } else if cb.kind == "tool_use" {
+                            let Some(cb) = &event.content_block else {
+                                continue;
+                            };
+                            match cb.kind.as_str() {
+                                "thinking" => state.is_thinking_block = true,
+                                "tool_use" => {
                                     state.is_thinking_block = false;
                                     state.chunk_idx += 1;
                                     let tool_idx = state.tool_call_idx;
@@ -671,51 +675,56 @@ fn anthropic_sse_stream(
                                                 reasoning_content: None,
                                             },
                                             finish_reason: None,
+                                            logprobs: None,
                                         }],
                                         usage: None,
+                                        system_fingerprint: None,
                                     };
                                     return Some((Ok(chunk), (byte_stream, buffer, model, state)));
-                                } else {
-                                    state.is_thinking_block = false;
                                 }
+                                _ => state.is_thinking_block = false,
                             }
                         }
                         "content_block_stop" => {
                             state.is_thinking_block = false;
                         }
                         "content_block_delta" => {
-                            if let Some(delta) = &event.delta {
-                                if delta.kind == "thinking_delta" {
+                            let Some(delta) = &event.delta else {
+                                continue;
+                            };
+                            match delta.kind.as_str() {
+                                "thinking_delta" => {
                                     let text = delta.thinking.as_deref().unwrap_or(&delta.text);
-                                    if !text.is_empty() {
-                                        state.chunk_idx += 1;
-                                        let chunk = ChatCompletionChunk {
-                                            id: format!("chatcmpl-{}", state.chunk_idx),
-                                            object: "chat.completion.chunk".to_string(),
-                                            created: 0,
-                                            model: model.clone(),
-                                            choices: vec![ChunkChoice {
-                                                index: 0,
-                                                delta: Delta {
-                                                    role: if state.chunk_idx == 1 {
-                                                        Some("assistant".to_string())
-                                                    } else {
-                                                        None
-                                                    },
-                                                    content: None,
-                                                    tool_calls: None,
-                                                    reasoning_content: Some(text.to_string()),
-                                                },
-                                                finish_reason: None,
-                                            }],
-                                            usage: None,
-                                        };
-                                        return Some((
-                                            Ok(chunk),
-                                            (byte_stream, buffer, model, state),
-                                        ));
+                                    if text.is_empty() {
+                                        continue;
                                     }
-                                } else if delta.kind == "text_delta" {
+                                    state.chunk_idx += 1;
+                                    let chunk = ChatCompletionChunk {
+                                        id: format!("chatcmpl-{}", state.chunk_idx),
+                                        object: "chat.completion.chunk".to_string(),
+                                        created: 0,
+                                        model: model.clone(),
+                                        choices: vec![ChunkChoice {
+                                            index: 0,
+                                            delta: Delta {
+                                                role: if state.chunk_idx == 1 {
+                                                    Some("assistant".to_string())
+                                                } else {
+                                                    None
+                                                },
+                                                content: None,
+                                                tool_calls: None,
+                                                reasoning_content: Some(text.to_string()),
+                                            },
+                                            finish_reason: None,
+                                            logprobs: None,
+                                        }],
+                                        usage: None,
+                                        system_fingerprint: None,
+                                    };
+                                    return Some((Ok(chunk), (byte_stream, buffer, model, state)));
+                                }
+                                "text_delta" => {
                                     state.chunk_idx += 1;
                                     let chunk = ChatCompletionChunk {
                                         id: format!("chatcmpl-{}", state.chunk_idx),
@@ -735,13 +744,17 @@ fn anthropic_sse_stream(
                                                 reasoning_content: None,
                                             },
                                             finish_reason: None,
+                                            logprobs: None,
                                         }],
                                         usage: None,
+                                        system_fingerprint: None,
                                     };
                                     return Some((Ok(chunk), (byte_stream, buffer, model, state)));
-                                } else if delta.kind == "input_json_delta"
-                                    && let Some(partial) = &delta.partial_json
-                                {
+                                }
+                                "input_json_delta" => {
+                                    let Some(partial) = &delta.partial_json else {
+                                        continue;
+                                    };
                                     state.chunk_idx += 1;
                                     let tool_idx = state.tool_call_idx.saturating_sub(1);
                                     let chunk = ChatCompletionChunk {
@@ -766,43 +779,49 @@ fn anthropic_sse_stream(
                                                 reasoning_content: None,
                                             },
                                             finish_reason: None,
+                                            logprobs: None,
                                         }],
                                         usage: None,
+                                        system_fingerprint: None,
                                     };
                                     return Some((Ok(chunk), (byte_stream, buffer, model, state)));
                                 }
+                                _ => {}
                             }
                         }
                         "message_delta" => {
-                            if let Some(delta) = &event.delta {
-                                let finish_reason = map_stop_reason(&delta.stop_reason);
-                                state.chunk_idx += 1;
-                                let chunk = ChatCompletionChunk {
-                                    id: format!("chatcmpl-{}", state.chunk_idx),
-                                    object: "chat.completion.chunk".to_string(),
-                                    created: 0,
-                                    model: model.clone(),
-                                    choices: vec![ChunkChoice {
-                                        index: 0,
-                                        delta: Delta {
-                                            role: None,
-                                            content: None,
-                                            tool_calls: None,
-                                            reasoning_content: None,
-                                        },
-                                        finish_reason,
-                                    }],
-                                    usage: event.usage.map(|u| Usage {
-                                        prompt_tokens: state.input_tokens,
-                                        completion_tokens: u.output_tokens,
-                                        total_tokens: state.input_tokens + u.output_tokens,
-                                        completion_tokens_details: None,
-                                        prompt_cache_hit_tokens: state.cache_read_input_tokens,
-                                        prompt_cache_miss_tokens: state.cache_creation_input_tokens,
-                                    }),
-                                };
-                                return Some((Ok(chunk), (byte_stream, buffer, model, state)));
-                            }
+                            let Some(delta) = &event.delta else {
+                                continue;
+                            };
+                            let finish_reason = map_stop_reason(&delta.stop_reason);
+                            state.chunk_idx += 1;
+                            let chunk = ChatCompletionChunk {
+                                id: format!("chatcmpl-{}", state.chunk_idx),
+                                object: "chat.completion.chunk".to_string(),
+                                created: 0,
+                                model: model.clone(),
+                                choices: vec![ChunkChoice {
+                                    index: 0,
+                                    delta: Delta {
+                                        role: None,
+                                        content: None,
+                                        tool_calls: None,
+                                        reasoning_content: None,
+                                    },
+                                    finish_reason,
+                                    logprobs: None,
+                                }],
+                                usage: event.usage.map(|u| Usage {
+                                    prompt_tokens: state.input_tokens,
+                                    completion_tokens: u.output_tokens,
+                                    total_tokens: state.input_tokens + u.output_tokens,
+                                    completion_tokens_details: None,
+                                    prompt_cache_hit_tokens: state.cache_read_input_tokens,
+                                    prompt_cache_miss_tokens: state.cache_creation_input_tokens,
+                                }),
+                                system_fingerprint: None,
+                            };
+                            return Some((Ok(chunk), (byte_stream, buffer, model, state)));
                         }
                         "message_stop" => return None,
                         _ => {}

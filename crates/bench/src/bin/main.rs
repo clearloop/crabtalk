@@ -90,8 +90,10 @@ async fn chat_completions(
                         reasoning_content: None,
                     },
                     finish_reason: if is_last { Some("stop".into()) } else { None },
+                    logprobs: None,
                 }],
                 usage: None,
+                system_fingerprint: None,
             };
             let json = serde_json::to_string(&chunk).unwrap();
             Ok::<_, std::convert::Infallible>(Event::default().data(json))
@@ -146,6 +148,7 @@ fn canned_chat_response() -> ChatCompletionResponse {
                 extra: Default::default(),
             },
             finish_reason: Some("stop".into()),
+            logprobs: None,
         }],
         usage: Some(Usage {
             prompt_tokens: 10,
@@ -155,6 +158,7 @@ fn canned_chat_response() -> ChatCompletionResponse {
             prompt_cache_hit_tokens: None,
             prompt_cache_miss_tokens: None,
         }),
+        system_fingerprint: None,
     }
 }
 

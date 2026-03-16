@@ -326,6 +326,7 @@ fn translate_response(resp: GeminiResponse, model: &str) -> ChatCompletionRespon
                 extra: Default::default(),
             },
             finish_reason,
+            logprobs: None,
         }],
         usage: resp.usage_metadata.map(|u| Usage {
             prompt_tokens: u.prompt_token_count,
@@ -335,6 +336,7 @@ fn translate_response(resp: GeminiResponse, model: &str) -> ChatCompletionRespon
             prompt_cache_hit_tokens: None,
             prompt_cache_miss_tokens: None,
         }),
+        system_fingerprint: None,
     }
 }
 
@@ -510,6 +512,7 @@ fn gemini_sse_stream(
                                 reasoning_content: None,
                             },
                             finish_reason,
+                            logprobs: None,
                         }],
                         usage: gemini_resp.usage_metadata.map(|u| Usage {
                             prompt_tokens: u.prompt_token_count,
@@ -519,6 +522,7 @@ fn gemini_sse_stream(
                             prompt_cache_hit_tokens: None,
                             prompt_cache_miss_tokens: None,
                         }),
+                        system_fingerprint: None,
                     };
                     return Some((Ok(chunk), (byte_stream, buffer, model, chunk_idx)));
                 }

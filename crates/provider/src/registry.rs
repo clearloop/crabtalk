@@ -20,6 +20,14 @@ pub struct ProviderRegistry {
 }
 
 impl ProviderRegistry {
+    /// Create a registry directly from pre-built provider lists and aliases.
+    pub fn new(
+        providers: HashMap<String, Vec<Deployment>>,
+        aliases: HashMap<String, String>,
+    ) -> Self {
+        ProviderRegistry { providers, aliases }
+    }
+
     /// Build the registry from gateway config.
     /// Returns an error if a provider is missing a required api_key.
     pub fn from_config(config: &GatewayConfig) -> Result<Self, Error> {
@@ -129,10 +137,7 @@ impl ProviderRegistry {
             }
         }
 
-        Ok(ProviderRegistry {
-            providers,
-            aliases: config.aliases.clone(),
-        })
+        Ok(Self::new(providers, config.aliases.clone()))
     }
 
     /// Resolve a model name through aliases. Returns the canonical name.

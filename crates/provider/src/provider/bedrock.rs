@@ -340,6 +340,7 @@ fn translate_response(resp: ConverseResponse, model: &str) -> ChatCompletionResp
                 extra: Default::default(),
             },
             finish_reason: map_stop_reason(&resp.stop_reason),
+            logprobs: None,
         }],
         usage: resp.usage.map(|u| Usage {
             prompt_tokens: u.input_tokens,
@@ -349,6 +350,7 @@ fn translate_response(resp: ConverseResponse, model: &str) -> ChatCompletionResp
             prompt_cache_hit_tokens: None,
             prompt_cache_miss_tokens: None,
         }),
+        system_fingerprint: None,
     }
 }
 
@@ -584,8 +586,10 @@ fn bedrock_event_stream(
                                     reasoning_content: None,
                                 },
                                 finish_reason: None,
+                                logprobs: None,
                             }],
                             usage: None,
+                            system_fingerprint: None,
                         };
                         return Some((Ok(chunk), (byte_stream, buf, model, state)));
                     }
@@ -620,8 +624,10 @@ fn bedrock_event_stream(
                                         reasoning_content: None,
                                     },
                                     finish_reason: None,
+                                    logprobs: None,
                                 }],
                                 usage: None,
+                                system_fingerprint: None,
                             };
                             return Some((Ok(chunk), (byte_stream, buf, model, state)));
                         }
@@ -649,8 +655,10 @@ fn bedrock_event_stream(
                                             reasoning_content: None,
                                         },
                                         finish_reason: None,
+                                        logprobs: None,
                                     }],
                                     usage: None,
+                                    system_fingerprint: None,
                                 };
                                 return Some((Ok(chunk), (byte_stream, buf, model, state)));
                             }
@@ -679,8 +687,10 @@ fn bedrock_event_stream(
                                             reasoning_content: None,
                                         },
                                         finish_reason: None,
+                                        logprobs: None,
                                     }],
                                     usage: None,
+                                    system_fingerprint: None,
                                 };
                                 return Some((Ok(chunk), (byte_stream, buf, model, state)));
                             }
@@ -705,8 +715,10 @@ fn bedrock_event_stream(
                                     reasoning_content: None,
                                 },
                                 finish_reason: map_stop_reason(&ms.stop_reason),
+                                logprobs: None,
                             }],
                             usage: None,
+                            system_fingerprint: None,
                         };
                         return Some((Ok(chunk), (byte_stream, buf, model, state)));
                     }
@@ -729,6 +741,7 @@ fn bedrock_event_stream(
                                     prompt_cache_hit_tokens: None,
                                     prompt_cache_miss_tokens: None,
                                 }),
+                                system_fingerprint: None,
                             };
                             return Some((Ok(chunk), (byte_stream, buf, model, state)));
                         }
