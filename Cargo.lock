@@ -348,6 +348,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "crabtalk-bench"
+version = "0.0.3"
+dependencies = [
+ "axum",
+ "clap",
+ "crabtalk-core",
+ "futures",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "crabtalk-core"
 version = "0.0.3"
 dependencies = [
