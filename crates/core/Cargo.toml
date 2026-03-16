@@ -10,7 +10,7 @@ categories.workspace = true
 readme = "README.md"
 
 [features]
-storage-sqlite = ["rusqlite"]
+storage-sqlite = ["sqlx"]
 
 [dependencies]
 # crates-io
@@ -22,4 +22,4 @@ tokio.workspace = true
 toml.workspace = true
 
 # optional
-rusqlite = { workspace = true, optional = true }
+sqlx = { workspace = true, optional = true }

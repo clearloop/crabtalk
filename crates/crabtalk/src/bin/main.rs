@@ -60,7 +60,8 @@ async fn main() {
                 .as_ref()
                 .and_then(|s| s.path.as_deref())
                 .unwrap_or("crabtalk.db");
-            let storage = match crabtalk_core::SqliteStorage::open(path) {
+            let url = format!("sqlite:{path}?mode=rwc");
+            let storage = match crabtalk_core::SqliteStorage::open(&url).await {
                 Ok(s) => Arc::new(s),
                 Err(e) => {
                     eprintln!("error: failed to open sqlite storage: {e}");
