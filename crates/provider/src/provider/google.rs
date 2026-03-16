@@ -321,6 +321,7 @@ fn translate_response(resp: GeminiResponse, model: &str) -> ChatCompletionRespon
                 tool_calls: tool_calls_opt,
                 tool_call_id: None,
                 name: None,
+                reasoning_content: None,
             },
             finish_reason,
         }],
@@ -328,6 +329,7 @@ fn translate_response(resp: GeminiResponse, model: &str) -> ChatCompletionRespon
             prompt_tokens: u.prompt_token_count,
             completion_tokens: u.candidates_token_count,
             total_tokens: u.total_token_count,
+            completion_tokens_details: None,
         }),
     }
 }
@@ -501,6 +503,7 @@ fn gemini_sse_stream(
                                 },
                                 content: if has_text { Some(text) } else { None },
                                 tool_calls: tool_call_deltas,
+                                reasoning_content: None,
                             },
                             finish_reason,
                         }],
@@ -508,6 +511,7 @@ fn gemini_sse_stream(
                             prompt_tokens: u.prompt_token_count,
                             completion_tokens: u.candidates_token_count,
                             total_tokens: u.total_token_count,
+                            completion_tokens_details: None,
                         }),
                     };
                     return Some((Ok(chunk), (byte_stream, buffer, model, chunk_idx)));

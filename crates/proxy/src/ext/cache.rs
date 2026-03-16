@@ -41,6 +41,24 @@ impl Cache {
             .unwrap_or_default()
             .as_secs()
     }
+
+    pub fn admin_routes(&self) -> Router {
+        let storage = self.storage.clone();
+        let prefix = Self::PREFIX;
+        Router::new().route(
+            "/v1/cache",
+            delete(move || {
+                let storage = storage.clone();
+                async move {
+                    let pairs = storage.list(&prefix).await.unwrap_or_default();
+                    for (key, _) in pairs {
+                        let _ = storage.delete(&key).await;
+                    }
+                    StatusCode::NO_CONTENT
+                }
+            }),
+        )
+    }
 }
 
 impl crabtalk_core::Extension for Cache {
@@ -97,24 +115,5 @@ impl crabtalk_core::Extension for Cache {
         Box::pin(async move {
             let _ = self.storage.set(&key, value).await;
         })
-    }
-
-    fn routes(&self) -> Option<Router> {
-        let storage = self.storage.clone();
-        let prefix = Self::PREFIX;
-        let router = Router::new().route(
-            "/v1/cache",
-            delete(move || {
-                let storage = storage.clone();
-                async move {
-                    let pairs = storage.list(&prefix).await.unwrap_or_default();
-                    for (key, _) in pairs {
-                        let _ = storage.delete(&key).await;
-                    }
-                    StatusCode::NO_CONTENT
-                }
-            }),
-        );
-        Some(router)
     }
 }

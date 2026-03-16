@@ -9,19 +9,8 @@ description = "Core types for the crabtalk LLM API gateway"
 keywords = ["llm", "openai", "api", "types", "gateway"]
 categories = ["data-structures", "web-programming"]
 
-[features]
-storage-redis = ["redis"]
-storage-sqlite = ["sqlx"]
-
 [dependencies]
 # crates-io
-axum.workspace = true
-dashmap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tokio.workspace = true
 toml.workspace = true
-
-# optional
-redis = { workspace = true, optional = true }
-sqlx = { workspace = true, optional = true }

@@ -335,6 +335,7 @@ fn translate_response(resp: ConverseResponse, model: &str) -> ChatCompletionResp
                 tool_calls: tool_calls_opt,
                 tool_call_id: None,
                 name: None,
+                reasoning_content: None,
             },
             finish_reason: map_stop_reason(&resp.stop_reason),
         }],
@@ -342,6 +343,7 @@ fn translate_response(resp: ConverseResponse, model: &str) -> ChatCompletionResp
             prompt_tokens: u.input_tokens,
             completion_tokens: u.output_tokens,
             total_tokens: u.total_tokens,
+            completion_tokens_details: None,
         }),
     }
 }
@@ -575,6 +577,7 @@ fn bedrock_event_stream(
                                     role: Some(ms.role),
                                     content: None,
                                     tool_calls: None,
+                                    reasoning_content: None,
                                 },
                                 finish_reason: None,
                             }],
@@ -610,6 +613,7 @@ fn bedrock_event_stream(
                                                 arguments: Some(String::new()),
                                             }),
                                         }]),
+                                        reasoning_content: None,
                                     },
                                     finish_reason: None,
                                 }],
@@ -638,6 +642,7 @@ fn bedrock_event_stream(
                                             role: None,
                                             content: Some(text.clone()),
                                             tool_calls: None,
+                                            reasoning_content: None,
                                         },
                                         finish_reason: None,
                                     }],
@@ -667,6 +672,7 @@ fn bedrock_event_stream(
                                                     arguments: Some(tu.input.clone()),
                                                 }),
                                             }]),
+                                            reasoning_content: None,
                                         },
                                         finish_reason: None,
                                     }],
@@ -692,6 +698,7 @@ fn bedrock_event_stream(
                                     role: None,
                                     content: None,
                                     tool_calls: None,
+                                    reasoning_content: None,
                                 },
                                 finish_reason: map_stop_reason(&ms.stop_reason),
                             }],
@@ -714,6 +721,7 @@ fn bedrock_event_stream(
                                     prompt_tokens: u.input_tokens,
                                     completion_tokens: u.output_tokens,
                                     total_tokens: u.total_tokens,
+                                    completion_tokens_details: None,
                                 }),
                             };
                             return Some((Ok(chunk), (byte_stream, buf, model, state)));

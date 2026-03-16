@@ -320,6 +320,7 @@ fn translate_response(resp: AnthropicResponse) -> ChatCompletionResponse {
                 tool_calls: tool_calls_opt,
                 tool_call_id: None,
                 name: None,
+                reasoning_content: None,
             },
             finish_reason: map_stop_reason(&resp.stop_reason),
         }],
@@ -327,6 +328,7 @@ fn translate_response(resp: AnthropicResponse) -> ChatCompletionResponse {
             prompt_tokens: resp.usage.input_tokens,
             completion_tokens: resp.usage.output_tokens,
             total_tokens: resp.usage.input_tokens + resp.usage.output_tokens,
+            completion_tokens_details: None,
         }),
     }
 }
@@ -485,6 +487,7 @@ fn anthropic_sse_stream(
                                                     arguments: Some(String::new()),
                                                 }),
                                             }]),
+                                            reasoning_content: None,
                                         },
                                         finish_reason: None,
                                     }],
@@ -512,6 +515,7 @@ fn anthropic_sse_stream(
                                                 },
                                                 content: Some(delta.text.clone()),
                                                 tool_calls: None,
+                                                reasoning_content: None,
                                             },
                                             finish_reason: None,
                                         }],
@@ -542,6 +546,7 @@ fn anthropic_sse_stream(
                                                         arguments: Some(partial.clone()),
                                                     }),
                                                 }]),
+                                                reasoning_content: None,
                                             },
                                             finish_reason: None,
                                         }],
@@ -566,6 +571,7 @@ fn anthropic_sse_stream(
                                             role: None,
                                             content: None,
                                             tool_calls: None,
+                                            reasoning_content: None,
                                         },
                                         finish_reason,
                                     }],
@@ -573,6 +579,7 @@ fn anthropic_sse_stream(
                                         prompt_tokens: u.input_tokens,
                                         completion_tokens: u.output_tokens,
                                         total_tokens: u.input_tokens + u.output_tokens,
+                                        completion_tokens_details: None,
                                     }),
                                 };
                                 return Some((Ok(chunk), (byte_stream, buffer, model, state)));

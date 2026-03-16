@@ -67,6 +67,22 @@ impl Budget {
         (cost(pricing, prompt_tokens, completion_tokens) * 1_000_000.0) as i64
     }
 
+    pub fn admin_routes(&self) -> Router {
+        let storage = self.storage.clone();
+        let prefix = Self::PREFIX;
+        let default_budget = self.default_budget_micros;
+        let key_budgets = self.key_budgets.clone();
+
+        Router::new().route(
+            "/v1/budget",
+            get(move || {
+                let storage = storage.clone();
+                let key_budgets = key_budgets.clone();
+                async move { budget_handler(storage, prefix, default_budget, key_budgets).await }
+            }),
+        )
+    }
+
     async fn record_cost(&self, key_name: &str, model: &str, prompt: u32, completion: u32) {
         let micros = self.cost_micros(model, prompt, completion);
         if micros > 0 {
@@ -143,23 +159,6 @@ impl crabtalk_core::Extension for Budget {
                     .await;
             }
         })
-    }
-
-    fn routes(&self) -> Option<Router> {
-        let storage = self.storage.clone();
-        let prefix = Self::PREFIX;
-        let default_budget = self.default_budget_micros;
-        let key_budgets = self.key_budgets.clone();
-
-        let router = Router::new().route(
-            "/v1/budget",
-            get(move || {
-                let storage = storage.clone();
-                let key_budgets = key_budgets.clone();
-                async move { budget_handler(storage, prefix, default_budget, key_budgets).await }
-            }),
-        );
-        Some(router)
     }
 }
 

@@ -87,6 +87,7 @@ async fn chat_completions(
                         },
                         content: if is_last { None } else { Some("word ".into()) },
                         tool_calls: None,
+                        reasoning_content: None,
                     },
                     finish_reason: if is_last { Some("stop".into()) } else { None },
                 }],
@@ -141,6 +142,7 @@ fn canned_chat_response() -> ChatCompletionResponse {
                 tool_calls: None,
                 tool_call_id: None,
                 name: None,
+                reasoning_content: None,
             },
             finish_reason: Some("stop".into()),
         }],
@@ -148,6 +150,7 @@ fn canned_chat_response() -> ChatCompletionResponse {
             prompt_tokens: 10,
             completion_tokens: 20,
             total_tokens: 30,
+            completion_tokens_details: None,
         }),
     }
 }
