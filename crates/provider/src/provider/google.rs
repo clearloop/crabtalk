@@ -1,6 +1,6 @@
 use crabtalk_core::{
     ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice, Delta,
-    Error, Message, Usage,
+    Error, FunctionCall, FunctionCallDelta, Message, ToolCall, ToolCallDelta, Usage,
 };
 use futures::stream::{self, Stream};
 use serde::{Deserialize, Serialize};
@@ -18,6 +18,8 @@ struct GeminiRequest {
     system_instruction: Option<GeminiContent>,
     #[serde(skip_serializing_if = "Option::is_none")]
     generation_config: Option<GenerationConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<GeminiToolDef>>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -28,9 +30,42 @@ struct GeminiContent {
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct GeminiPart {
     #[serde(skip_serializing_if = "Option::is_none")]
     text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    function_call: Option<GeminiFunctionCall>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    function_response: Option<GeminiFunctionResponse>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct GeminiFunctionCall {
+    name: String,
+    #[serde(default)]
+    args: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize)]
+struct GeminiFunctionResponse {
+    name: String,
+    response: serde_json::Value,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiToolDef {
+    function_declarations: Vec<GeminiFunctionDecl>,
+}
+
+#[derive(Serialize)]
+struct GeminiFunctionDecl {
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parameters: Option<serde_json::Value>,
 }
 
 #[derive(Serialize)]
@@ -90,8 +125,68 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
             {
                 system_parts.push(GeminiPart {
                     text: Some(s.to_string()),
+                    function_call: None,
+                    function_response: None,
                 });
             }
+        } else if msg.role == "tool" {
+            // Tool result → user message with functionResponse part.
+            let name = msg.name.clone().unwrap_or_default();
+            let response_val = msg
+                .content
+                .as_ref()
+                .and_then(|c| {
+                    if c.is_object() || c.is_array() {
+                        Some(c.clone())
+                    } else if let Some(s) = c.as_str() {
+                        serde_json::from_str(s).ok()
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(serde_json::json!({"result": msg.content.as_ref().and_then(|c| c.as_str()).unwrap_or("")}));
+            contents.push(GeminiContent {
+                role: Some("user".to_string()),
+                parts: vec![GeminiPart {
+                    text: None,
+                    function_call: None,
+                    function_response: Some(GeminiFunctionResponse {
+                        name,
+                        response: response_val,
+                    }),
+                }],
+            });
+        } else if msg.role == "assistant"
+            && let Some(tool_calls) = &msg.tool_calls
+        {
+            // Assistant message with tool_calls → model message with functionCall parts.
+            let mut parts = Vec::new();
+            if let Some(content) = &msg.content
+                && let Some(s) = content.as_str()
+                && !s.is_empty()
+            {
+                parts.push(GeminiPart {
+                    text: Some(s.to_string()),
+                    function_call: None,
+                    function_response: None,
+                });
+            }
+            for tc in tool_calls {
+                let args = serde_json::from_str(&tc.function.arguments)
+                    .unwrap_or(serde_json::Value::Object(Default::default()));
+                parts.push(GeminiPart {
+                    text: None,
+                    function_call: Some(GeminiFunctionCall {
+                        name: tc.function.name.clone(),
+                        args,
+                    }),
+                    function_response: None,
+                });
+            }
+            contents.push(GeminiContent {
+                role: Some("model".to_string()),
+                parts,
+            });
         } else {
             let role = match msg.role.as_str() {
                 "assistant" => "model",
@@ -105,7 +200,11 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
                 .to_string();
             contents.push(GeminiContent {
                 role: Some(role.to_string()),
-                parts: vec![GeminiPart { text: Some(text) }],
+                parts: vec![GeminiPart {
+                    text: Some(text),
+                    function_call: None,
+                    function_response: None,
+                }],
             });
         }
     }
@@ -131,10 +230,24 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
         stop_sequences,
     });
 
+    let tools = request.tools.as_ref().map(|tools| {
+        vec![GeminiToolDef {
+            function_declarations: tools
+                .iter()
+                .map(|t| GeminiFunctionDecl {
+                    name: t.function.name.clone(),
+                    description: t.function.description.clone(),
+                    parameters: t.function.parameters.clone(),
+                })
+                .collect(),
+        }]
+    });
+
     GeminiRequest {
         contents,
         system_instruction,
         generation_config,
+        tools,
     }
 }
 
@@ -147,26 +260,53 @@ fn map_finish_reason(reason: &Option<String>) -> Option<String> {
     })
 }
 
+/// Extract text and tool calls from response candidate parts.
+fn extract_parts(candidate: &GeminiCandidate) -> (String, Vec<ToolCall>) {
+    let mut text = String::new();
+    let mut tool_calls = Vec::new();
+
+    if let Some(content) = &candidate.content {
+        for (i, part) in content.parts.iter().enumerate() {
+            if let Some(t) = &part.text {
+                text.push_str(t);
+            }
+            if let Some(fc) = &part.function_call {
+                tool_calls.push(ToolCall {
+                    id: format!("call_{i}"),
+                    kind: "function".to_string(),
+                    function: FunctionCall {
+                        name: fc.name.clone(),
+                        arguments: serde_json::to_string(&fc.args).unwrap_or_default(),
+                    },
+                });
+            }
+        }
+    }
+
+    (text, tool_calls)
+}
+
 fn translate_response(resp: GeminiResponse, model: &str) -> ChatCompletionResponse {
-    let (content_text, finish_reason) = resp
+    let (content_text, tool_calls, finish_reason) = resp
         .candidates
         .first()
         .map(|c| {
-            let text = c
-                .content
-                .as_ref()
-                .map(|content| {
-                    content
-                        .parts
-                        .iter()
-                        .filter_map(|p| p.text.as_deref())
-                        .collect::<Vec<_>>()
-                        .join("")
-                })
-                .unwrap_or_default();
-            (text, map_finish_reason(&c.finish_reason))
+            let (text, tcs) = extract_parts(c);
+            (text, tcs, map_finish_reason(&c.finish_reason))
         })
         .unwrap_or_default();
+
+    let tool_calls_opt = if tool_calls.is_empty() {
+        None
+    } else {
+        Some(tool_calls)
+    };
+
+    let content = if content_text.is_empty() && tool_calls_opt.is_some() {
+        None
+    } else {
+        Some(serde_json::Value::String(content_text))
+    };
 
     ChatCompletionResponse {
         id: String::new(),
@@ -177,8 +317,8 @@ fn translate_response(resp: GeminiResponse, model: &str) -> ChatCompletionRespon
             index: 0,
             message: Message {
                 role: "assistant".to_string(),
-                content: Some(serde_json::Value::String(content_text)),
-                tool_calls: None,
+                content,
+                tool_calls: tool_calls_opt,
                 tool_call_id: None,
                 name: None,
             },
@@ -290,25 +430,43 @@ fn gemini_sse_stream(
                         Err(_) => continue,
                     };
 
-                    // Extract text delta from first candidate.
-                    let text = gemini_resp
-                        .candidates
-                        .first()
-                        .and_then(|c| c.content.as_ref())
-                        .and_then(|content| content.parts.first())
-                        .and_then(|p| p.text.clone());
+                    let candidate = match gemini_resp.candidates.first() {
+                        Some(c) => c,
+                        None => continue,
+                    };
 
-                    let finish_reason = gemini_resp
-                        .candidates
-                        .first()
-                        .and_then(|c| map_finish_reason(&c.finish_reason));
+                    let (text, tool_calls) = extract_parts(candidate);
+                    let finish_reason = map_finish_reason(&candidate.finish_reason);
 
-                    // Skip chunks with no content and no finish reason.
-                    if text.is_none() && finish_reason.is_none() {
+                    let has_text = !text.is_empty();
+                    let has_tools = !tool_calls.is_empty();
+
+                    // Skip chunks with no content, no tool calls, and no finish reason.
+                    if !has_text && !has_tools && finish_reason.is_none() {
                         continue;
                     }
 
                     chunk_idx += 1;
+                    let tool_call_deltas = if has_tools {
+                        Some(
+                            tool_calls
+                                .into_iter()
+                                .enumerate()
+                                .map(|(i, tc)| ToolCallDelta {
+                                    index: i as u32,
+                                    id: Some(tc.id),
+                                    kind: Some("function".to_string()),
+                                    function: Some(FunctionCallDelta {
+                                        name: Some(tc.function.name),
+                                        arguments: Some(tc.function.arguments),
+                                    }),
+                                })
+                                .collect(),
+                        )
+                    } else {
+                        None
+                    };
+
                     let chunk = ChatCompletionChunk {
                         id: format!("chatcmpl-{chunk_idx}"),
                         object: "chat.completion.chunk".to_string(),
@@ -322,8 +480,8 @@ fn gemini_sse_stream(
                                 } else {
                                     None
                                 },
-                                content: text,
-                                tool_calls: None,
+                                content: if has_text { Some(text) } else { None },
+                                tool_calls: tool_call_deltas,
                             },
                             finish_reason,
                         }],
