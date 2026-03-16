@@ -297,6 +297,7 @@ fn translate_response(resp: ConverseResponse, model: &str) -> ChatCompletionResp
                     input,
                 } => {
                     tool_calls.push(ToolCall {
+                        index: None,
                         id: tool_use_id.clone(),
                         kind: "function".to_string(),
                         function: FunctionCall {
@@ -336,6 +337,7 @@ fn translate_response(resp: ConverseResponse, model: &str) -> ChatCompletionResp
                 tool_call_id: None,
                 name: None,
                 reasoning_content: None,
+                extra: Default::default(),
             },
             finish_reason: map_stop_reason(&resp.stop_reason),
         }],
@@ -344,6 +346,8 @@ fn translate_response(resp: ConverseResponse, model: &str) -> ChatCompletionResp
             completion_tokens: u.output_tokens,
             total_tokens: u.total_tokens,
             completion_tokens_details: None,
+            prompt_cache_hit_tokens: None,
+            prompt_cache_miss_tokens: None,
         }),
     }
 }
@@ -722,6 +726,8 @@ fn bedrock_event_stream(
                                     completion_tokens: u.output_tokens,
                                     total_tokens: u.total_tokens,
                                     completion_tokens_details: None,
+                                    prompt_cache_hit_tokens: None,
+                                    prompt_cache_miss_tokens: None,
                                 }),
                             };
                             return Some((Ok(chunk), (byte_stream, buf, model, state)));

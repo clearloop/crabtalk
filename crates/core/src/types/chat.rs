@@ -30,6 +30,9 @@ pub struct ChatCompletionRequest {
     pub user: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    #[serde(flatten, default)]
+    #[serde(skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,10 +55,15 @@ pub struct Message {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_content: Option<String>,
+    #[serde(flatten, default)]
+    #[serde(skip_serializing_if = "serde_json::Map::is_empty")]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCall {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index: Option<u32>,
     pub id: String,
     #[serde(rename = "type")]
     pub kind: String,
@@ -73,6 +81,8 @@ pub struct Tool {
     #[serde(rename = "type")]
     pub kind: String,
     pub function: FunctionDef,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strict: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -112,6 +122,10 @@ pub struct Usage {
     pub total_tokens: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completion_tokens_details: Option<CompletionTokensDetails>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_hit_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_cache_miss_tokens: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

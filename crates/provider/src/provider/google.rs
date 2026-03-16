@@ -272,6 +272,7 @@ fn extract_parts(candidate: &GeminiCandidate) -> (String, Vec<ToolCall>) {
             }
             if let Some(fc) = &part.function_call {
                 tool_calls.push(ToolCall {
+                    index: None,
                     id: format!("call_{i}"),
                     kind: "function".to_string(),
                     function: FunctionCall {
@@ -322,6 +323,7 @@ fn translate_response(resp: GeminiResponse, model: &str) -> ChatCompletionRespon
                 tool_call_id: None,
                 name: None,
                 reasoning_content: None,
+                extra: Default::default(),
             },
             finish_reason,
         }],
@@ -330,6 +332,8 @@ fn translate_response(resp: GeminiResponse, model: &str) -> ChatCompletionRespon
             completion_tokens: u.candidates_token_count,
             total_tokens: u.total_token_count,
             completion_tokens_details: None,
+            prompt_cache_hit_tokens: None,
+            prompt_cache_miss_tokens: None,
         }),
     }
 }
@@ -512,6 +516,8 @@ fn gemini_sse_stream(
                             completion_tokens: u.candidates_token_count,
                             total_tokens: u.total_token_count,
                             completion_tokens_details: None,
+                            prompt_cache_hit_tokens: None,
+                            prompt_cache_miss_tokens: None,
                         }),
                     };
                     return Some((Ok(chunk), (byte_stream, buffer, model, chunk_idx)));
