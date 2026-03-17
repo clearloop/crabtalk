@@ -1,6 +1,7 @@
 use crabtalk_core::{
     ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice, Delta,
-    Error, FunctionCall, FunctionCallDelta, Message, ToolCall, ToolCallDelta, Usage,
+    Error, FinishReason, FunctionCall, FunctionCallDelta, Message, Role, ToolCall, ToolCallDelta,
+    ToolType, Usage,
 };
 use futures::stream::{self, Stream};
 use serde::{Deserialize, Serialize};
@@ -119,7 +120,7 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
     let mut contents = Vec::new();
 
     for msg in &request.messages {
-        if msg.role == "system" {
+        if msg.role == Role::System {
             if let Some(content) = &msg.content
                 && let Some(s) = content.as_str()
             {
@@ -129,7 +130,7 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
                     function_response: None,
                 });
             }
-        } else if msg.role == "tool" {
+        } else if msg.role == Role::Tool {
             // Tool result → user message with functionResponse part.
             let name = msg.name.clone().unwrap_or_default();
             let response_val = msg
@@ -156,7 +157,7 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
                     }),
                 }],
             });
-        } else if msg.role == "assistant"
+        } else if msg.role == Role::Assistant
             && let Some(tool_calls) = &msg.tool_calls
         {
             // Assistant message with tool_calls → model message with functionCall parts.
@@ -188,9 +189,9 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
                 parts,
             });
         } else {
-            let role = match msg.role.as_str() {
-                "assistant" => "model",
-                other => other,
+            let role = match &msg.role {
+                Role::Assistant => "model",
+                other => other.as_str(),
             };
             let text = msg
                 .content
@@ -251,12 +252,12 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
     }
 }
 
-fn map_finish_reason(reason: &Option<String>) -> Option<String> {
+fn map_finish_reason(reason: &Option<String>) -> Option<FinishReason> {
     reason.as_ref().map(|r| match r.as_str() {
-        "STOP" => "stop".to_string(),
-        "MAX_TOKENS" => "length".to_string(),
-        "SAFETY" => "content_filter".to_string(),
-        other => other.to_lowercase(),
+        "STOP" => FinishReason::Stop,
+        "MAX_TOKENS" => FinishReason::Length,
+        "SAFETY" => FinishReason::ContentFilter,
+        other => FinishReason::Custom(other.to_lowercase()),
     })
 }
 
@@ -274,7 +275,7 @@ fn extract_parts(candidate: &GeminiCandidate) -> (String, Vec<ToolCall>) {
                 tool_calls.push(ToolCall {
                     index: None,
                     id: format!("call_{i}"),
-                    kind: "function".to_string(),
+                    kind: ToolType::Function,
                     function: FunctionCall {
                         name: fc.name.clone(),
                         arguments: serde_json::to_string(&fc.args).unwrap_or_default(),
@@ -317,7 +318,7 @@ fn translate_response(resp: GeminiResponse, model: &str) -> ChatCompletionRespon
         choices: vec![Choice {
             index: 0,
             message: Message {
-                role: "assistant".to_string(),
+                role: Role::Assistant,
                 content,
                 tool_calls: tool_calls_opt,
                 tool_call_id: None,
@@ -482,7 +483,7 @@ fn gemini_sse_stream(
                                 .map(|(i, tc)| ToolCallDelta {
                                     index: i as u32,
                                     id: Some(tc.id),
-                                    kind: Some("function".to_string()),
+                                    kind: Some(ToolType::Function),
                                     function: Some(FunctionCallDelta {
                                         name: Some(tc.function.name),
                                         arguments: Some(tc.function.arguments),
@@ -503,7 +504,7 @@ fn gemini_sse_stream(
                             index: 0,
                             delta: Delta {
                                 role: if chunk_idx == 1 {
-                                    Some("assistant".to_string())
+                                    Some(Role::Assistant)
                                 } else {
                                     None
                                 },

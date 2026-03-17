@@ -1,6 +1,7 @@
 use crabtalk_core::{
     ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice, Delta,
-    Error, FunctionCall, FunctionCallDelta, Message, Stop, ToolCall, ToolCallDelta, Usage,
+    Error, FinishReason, FunctionCall, FunctionCallDelta, Message, Role, Stop, ToolCall,
+    ToolCallDelta, ToolType, Usage,
 };
 use futures::{
     TryStreamExt,
@@ -187,13 +188,13 @@ fn translate_request(request: &ChatCompletionRequest) -> AnthropicRequest {
     let mut messages = Vec::new();
 
     for msg in &request.messages {
-        if msg.role == "system" {
+        if msg.role == Role::System {
             if let Some(content) = &msg.content
                 && let Some(s) = content.as_str()
             {
                 system_parts.push(s.to_string());
             }
-        } else if msg.role == "tool" {
+        } else if msg.role == Role::Tool {
             // Tool result → user message with tool_result content block.
             let content_str = msg
                 .content
@@ -214,7 +215,7 @@ fn translate_request(request: &ChatCompletionRequest) -> AnthropicRequest {
                     content: content_str,
                 }]),
             });
-        } else if msg.role == "assistant"
+        } else if msg.role == Role::Assistant
             && let Some(tool_calls) = &msg.tool_calls
         {
             // Assistant message with tool_calls → content blocks.
@@ -296,7 +297,7 @@ fn translate_request(request: &ChatCompletionRequest) -> AnthropicRequest {
                 None => AnthropicContent::Text(String::new()),
             };
             messages.push(AnthropicMessage {
-                role: msg.role.clone(),
+                role: msg.role.as_str().to_string(),
                 content: anthropic_content,
             });
         }
@@ -402,12 +403,12 @@ fn map_usage(u: &AnthropicUsage) -> Usage {
     }
 }
 
-fn map_stop_reason(stop_reason: &Option<String>) -> Option<String> {
+fn map_stop_reason(stop_reason: &Option<String>) -> Option<FinishReason> {
     stop_reason.as_ref().map(|r| match r.as_str() {
-        "end_turn" => "stop".to_string(),
-        "max_tokens" => "length".to_string(),
-        "tool_use" => "tool_calls".to_string(),
-        other => other.to_string(),
+        "end_turn" => FinishReason::Stop,
+        "max_tokens" => FinishReason::Length,
+        "tool_use" => FinishReason::ToolCalls,
+        other => FinishReason::Custom(other.to_string()),
     })
 }
 
@@ -430,7 +431,7 @@ fn translate_response(resp: AnthropicResponse) -> ChatCompletionResponse {
                     tool_calls.push(ToolCall {
                         index: None,
                         id: id.clone(),
-                        kind: "function".to_string(),
+                        kind: ToolType::Function,
                         function: FunctionCall {
                             name: name.clone(),
                             arguments: serde_json::to_string(input).unwrap_or_default(),
@@ -462,7 +463,7 @@ fn translate_response(resp: AnthropicResponse) -> ChatCompletionResponse {
         choices: vec![Choice {
             index: 0,
             message: Message {
-                role: "assistant".to_string(),
+                role: Role::Assistant,
                 content,
                 tool_calls: tool_calls_opt,
                 tool_call_id: None,
@@ -658,7 +659,7 @@ fn anthropic_sse_stream(
                                             index: 0,
                                             delta: Delta {
                                                 role: if state.chunk_idx == 1 {
-                                                    Some("assistant".to_string())
+                                                    Some(Role::Assistant)
                                                 } else {
                                                     None
                                                 },
@@ -666,7 +667,7 @@ fn anthropic_sse_stream(
                                                 tool_calls: Some(vec![ToolCallDelta {
                                                     index: tool_idx,
                                                     id: cb.id.clone(),
-                                                    kind: Some("function".to_string()),
+                                                    kind: Some(ToolType::Function),
                                                     function: Some(FunctionCallDelta {
                                                         name: cb.name.clone(),
                                                         arguments: Some(String::new()),
@@ -708,7 +709,7 @@ fn anthropic_sse_stream(
                                             index: 0,
                                             delta: Delta {
                                                 role: if state.chunk_idx == 1 {
-                                                    Some("assistant".to_string())
+                                                    Some(Role::Assistant)
                                                 } else {
                                                     None
                                                 },
@@ -735,7 +736,7 @@ fn anthropic_sse_stream(
                                             index: 0,
                                             delta: Delta {
                                                 role: if state.chunk_idx == 1 {
-                                                    Some("assistant".to_string())
+                                                    Some(Role::Assistant)
                                                 } else {
                                                     None
                                                 },

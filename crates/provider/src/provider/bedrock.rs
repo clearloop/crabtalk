@@ -12,7 +12,8 @@ pub(crate) use self::sigv4::sign_request;
 #[cfg(feature = "provider-bedrock")]
 use crabtalk_core::{
     ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice, Delta,
-    FunctionCall, FunctionCallDelta, Message, ToolCall, ToolCallDelta, Usage,
+    FinishReason, FunctionCall, FunctionCallDelta, Message, Role, ToolCall, ToolCallDelta,
+    ToolType, Usage,
 };
 #[cfg(feature = "provider-bedrock")]
 use futures::stream::{self, Stream};
@@ -159,7 +160,7 @@ fn translate_request(request: &ChatCompletionRequest) -> ConverseRequest {
     let mut messages = Vec::new();
 
     for msg in &request.messages {
-        if msg.role == "system" {
+        if msg.role == Role::System {
             if let Some(content) = &msg.content
                 && let Some(s) = content.as_str()
             {
@@ -167,7 +168,7 @@ fn translate_request(request: &ChatCompletionRequest) -> ConverseRequest {
                     text: s.to_string(),
                 });
             }
-        } else if msg.role == "tool" {
+        } else if msg.role == Role::Tool {
             // Tool result → user message with toolResult content block.
             let content_str = msg
                 .content
@@ -188,7 +189,7 @@ fn translate_request(request: &ChatCompletionRequest) -> ConverseRequest {
                     content: vec![ToolResultContent::Text(content_str)],
                 }],
             });
-        } else if msg.role == "assistant"
+        } else if msg.role == Role::Assistant
             && let Some(tool_calls) = &msg.tool_calls
         {
             // Assistant message with tool_calls → content blocks.
@@ -220,7 +221,7 @@ fn translate_request(request: &ChatCompletionRequest) -> ConverseRequest {
                 .unwrap_or("")
                 .to_string();
             messages.push(ConverseMessage {
-                role: msg.role.clone(),
+                role: msg.role.as_str().to_string(),
                 content: vec![ContentBlock::Text(text)],
             });
         }
@@ -272,13 +273,12 @@ fn translate_request(request: &ChatCompletionRequest) -> ConverseRequest {
 }
 
 #[cfg(feature = "provider-bedrock")]
-fn map_stop_reason(stop_reason: &Option<String>) -> Option<String> {
+fn map_stop_reason(stop_reason: &Option<String>) -> Option<FinishReason> {
     stop_reason.as_ref().map(|r| match r.as_str() {
-        "end_turn" => "stop".to_string(),
-        "max_tokens" => "length".to_string(),
-        "tool_use" => "tool_calls".to_string(),
-        "stop_sequence" => "stop".to_string(),
-        other => other.to_string(),
+        "end_turn" | "stop_sequence" => FinishReason::Stop,
+        "max_tokens" => FinishReason::Length,
+        "tool_use" => FinishReason::ToolCalls,
+        other => FinishReason::Custom(other.to_string()),
     })
 }
 
@@ -299,7 +299,7 @@ fn translate_response(resp: ConverseResponse, model: &str) -> ChatCompletionResp
                     tool_calls.push(ToolCall {
                         index: None,
                         id: tool_use_id.clone(),
-                        kind: "function".to_string(),
+                        kind: ToolType::Function,
                         function: FunctionCall {
                             name: name.clone(),
                             arguments: serde_json::to_string(input).unwrap_or_default(),
@@ -331,7 +331,7 @@ fn translate_response(resp: ConverseResponse, model: &str) -> ChatCompletionResp
         choices: vec![Choice {
             index: 0,
             message: Message {
-                role: "assistant".to_string(),
+                role: Role::Assistant,
                 content,
                 tool_calls: tool_calls_opt,
                 tool_call_id: None,
@@ -412,7 +412,7 @@ struct StreamEvent {
 #[cfg(feature = "provider-bedrock")]
 #[derive(Deserialize)]
 struct MessageStartEvent {
-    role: String,
+    role: Role,
 }
 
 #[cfg(feature = "provider-bedrock")]
@@ -615,7 +615,7 @@ fn bedrock_event_stream(
                                         tool_calls: Some(vec![ToolCallDelta {
                                             index: tool_idx,
                                             id: start.tool_use_id.clone(),
-                                            kind: Some("function".to_string()),
+                                            kind: Some(ToolType::Function),
                                             function: Some(FunctionCallDelta {
                                                 name: start.name.clone(),
                                                 arguments: Some(String::new()),

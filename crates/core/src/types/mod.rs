@@ -1,8 +1,8 @@
 pub use audio::AudioSpeechRequest;
 pub use chat::{
     ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice,
-    CompletionTokensDetails, Delta, FunctionCall, FunctionCallDelta, FunctionDef, Message, Stop,
-    Tool, ToolCall, ToolCallDelta, Usage,
+    CompletionTokensDetails, Delta, FinishReason, FunctionCall, FunctionCallDelta, FunctionDef,
+    Message, Role, Stop, Tool, ToolCall, ToolCallDelta, ToolType, Usage,
 };
 pub use embedding::{
     Embedding, EmbeddingInput, EmbeddingRequest, EmbeddingResponse, EmbeddingUsage,
