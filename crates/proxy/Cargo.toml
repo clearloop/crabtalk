@@ -14,7 +14,7 @@ storage-redis = ["redis"]
 storage-sqlite = ["sqlx"]
 
 [dependencies]
-crabtalk-core.workspace = true
+crabtalk-core = { workspace = true, features = ["gateway"] }
 crabtalk-provider.workspace = true
 
 # crates-io
@@ -26,7 +26,6 @@ reqwest.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 tokio.workspace = true
-toml.workspace = true
 tower.workspace = true
 tracing.workspace = true
 uuid.workspace = true

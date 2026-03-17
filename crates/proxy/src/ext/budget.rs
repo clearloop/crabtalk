@@ -17,13 +17,13 @@ impl Budget {
     const PREFIX: Prefix = *b"bdgt";
 
     pub fn new(
-        config: &toml::Value,
+        config: &serde_json::Value,
         storage: Arc<dyn Storage>,
         pricing: HashMap<String, PricingConfig>,
     ) -> Result<Self, String> {
         let default_budget = config
             .get("default_budget")
-            .and_then(|v| v.as_float())
+            .and_then(|v| v.as_f64())
             .ok_or("budget: missing or invalid 'default_budget' (USD float)")?;
 
         if default_budget <= 0.0 {
@@ -33,11 +33,11 @@ impl Budget {
         let default_budget_micros = (default_budget * 1_000_000.0) as i64;
 
         let mut key_budgets = HashMap::new();
-        if let Some(keys_table) = config.get("keys").and_then(|v| v.as_table()) {
+        if let Some(keys_table) = config.get("keys").and_then(|v| v.as_object()) {
             for (key_name, key_config) in keys_table {
                 let budget = key_config
                     .get("budget")
-                    .and_then(|v| v.as_float())
+                    .and_then(|v| v.as_f64())
                     .ok_or(format!(
                         "budget: key '{key_name}' missing or invalid 'budget'"
                     ))?;

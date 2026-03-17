@@ -17,10 +17,10 @@ pub struct Cache {
 impl Cache {
     const PREFIX: Prefix = *b"cach";
 
-    pub fn new(config: &toml::Value, storage: Arc<dyn Storage>) -> Result<Self, String> {
+    pub fn new(config: &serde_json::Value, storage: Arc<dyn Storage>) -> Result<Self, String> {
         let ttl_seconds = config
             .get("ttl_seconds")
-            .and_then(|v| v.as_integer())
+            .and_then(|v| v.as_i64())
             .unwrap_or(300) as u64;
 
         Ok(Self {

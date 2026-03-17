@@ -342,8 +342,8 @@ dependencies = [
  "crabtalk-provider",
  "crabtalk-proxy",
  "reqwest",
+ "serde_json",
  "tokio",
- "toml",
  "tracing-subscriber",
 ]
 
@@ -402,7 +402,6 @@ dependencies = [
  "sha2",
  "sqlx",
  "tokio",
- "toml",
  "tower",
  "tracing",
  "uuid",

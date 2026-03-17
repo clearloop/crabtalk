@@ -193,8 +193,8 @@ fn build_extensions(
     let mut has_logging = false;
 
     let ext_table = match &config.extensions {
-        Some(toml::Value::Table(t)) => t,
-        Some(_) => return Err("[extensions] must be a TOML table".to_string()),
+        Some(serde_json::Value::Object(t)) => t,
+        Some(_) => return Err("[extensions] must be a table".to_string()),
         None => return Ok((extensions, admin_routes)),
     };
 

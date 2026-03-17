@@ -11,7 +11,7 @@ pub struct UsageTracker {
 }
 
 impl UsageTracker {
-    pub fn new(_config: &toml::Value, storage: Arc<dyn Storage>) -> Result<Self, String> {
+    pub fn new(_config: &serde_json::Value, storage: Arc<dyn Storage>) -> Result<Self, String> {
         Ok(Self { storage })
     }
 

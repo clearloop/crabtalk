@@ -9,8 +9,11 @@ description = "Core types for the crabtalk LLM API gateway"
 keywords = ["llm", "openai", "api", "types", "gateway"]
 categories = ["data-structures", "web-programming"]
 
+[features]
+gateway = ["toml"]
+
 [dependencies]
 # crates-io
 serde.workspace = true
 serde_json.workspace = true
-toml.workspace = true
+toml = { workspace = true, optional = true }
