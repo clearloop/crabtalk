@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Benchmark runner for crabtalk.
+# Benchmark runner for crabllm.
 # Usage: ./run.sh [--target URL] [--duration SECS] [--rps LEVELS]
 
 TARGET="http://127.0.0.1:8080"
@@ -31,10 +31,10 @@ fi
 
 # Build.
 echo "==> Building..."
-cargo build --release -p crabtalk-bench -p crabtalk --manifest-path "$ROOT_DIR/Cargo.toml"
+cargo build --release -p crabllm-bench -p crabllm --manifest-path "$ROOT_DIR/Cargo.toml"
 
-MOCK="$ROOT_DIR/target/release/crabtalk-bench"
-GATEWAY="$ROOT_DIR/target/release/crabtalk"
+MOCK="$ROOT_DIR/target/release/crabllm-bench"
+GATEWAY="$ROOT_DIR/target/release/crabllm"
 
 # Wait for a port to become ready.
 wait_for() {

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-/// Shared error type for the crabtalk workspace.
+/// Shared error type for the crabllm workspace.
 #[derive(Debug)]
 pub enum Error {
     /// TOML config parse error or missing env var.

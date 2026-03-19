@@ -1,5 +1,5 @@
-use crabtalk_core::{Extension, GatewayConfig, Storage};
-use crabtalk_provider::ProviderRegistry;
+use crabllm_core::{Extension, GatewayConfig, Storage};
+use crabllm_provider::ProviderRegistry;
 use std::{collections::HashMap, sync::Arc};
 
 /// Shared application state passed to all handlers.

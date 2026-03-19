@@ -1,11 +1,11 @@
 [package]
-name = "crabtalk-proxy"
+name = "crabllm-proxy"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "README.md"
-description = "HTTP proxy server for the crabtalk LLM API gateway"
+description = "HTTP proxy server for the crabllm LLM API gateway"
 keywords = ["llm", "proxy", "openai", "streaming", "gateway"]
 categories = ["web-programming::http-server", "network-programming"]
 
@@ -14,8 +14,8 @@ storage-redis = ["redis"]
 storage-sqlite = ["sqlx"]
 
 [dependencies]
-crabtalk-core = { workspace = true, features = ["gateway"] }
-crabtalk-provider.workspace = true
+crabllm-core = { workspace = true, features = ["gateway"] }
+crabllm-provider.workspace = true
 
 # crates-io
 axum.workspace = true

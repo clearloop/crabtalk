@@ -1,6 +1,6 @@
-# crabtalk-bench
+# crabllm-bench
 
-Mock OpenAI-compatible backend for benchmarking crabtalk. Serves canned
+Mock OpenAI-compatible backend for benchmarking crabllm. Serves canned
 responses with zero LLM latency so you can measure gateway overhead in
 isolation.
 
@@ -13,8 +13,8 @@ isolation.
 ## Usage
 
 ```sh
-cargo install crabtalk-bench
-crabtalk-bench --port 9999 --chunks 20
+cargo install crabllm-bench
+crabllm-bench --port 9999 --chunks 20
 ```
 
 `--chunks` controls how many SSE events a streaming response produces.

@@ -1,4 +1,4 @@
-use crabtalk_core::Error;
+use crabllm_core::Error;
 
 pub fn not_implemented(name: &str) -> Error {
     Error::Internal(format!("bedrock {name} not yet implemented"))
@@ -10,7 +10,7 @@ pub(crate) use self::sigv4::sign_request;
 // ── Converse API (feature-gated) ──
 
 #[cfg(feature = "provider-bedrock")]
-use crabtalk_core::{
+use crabllm_core::{
     ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice, Delta,
     FinishReason, FunctionCall, FunctionCallDelta, Message, Role, ToolCall, ToolCallDelta,
     ToolType, Usage,
@@ -234,8 +234,8 @@ fn translate_request(request: &ChatCompletionRequest) -> ConverseRequest {
     };
 
     let stop_sequences = request.stop.as_ref().map(|s| match s {
-        crabtalk_core::Stop::Single(s) => vec![s.clone()],
-        crabtalk_core::Stop::Multiple(v) => v.clone(),
+        crabllm_core::Stop::Single(s) => vec![s.clone()],
+        crabllm_core::Stop::Multiple(v) => v.clone(),
     });
 
     let inference_config = Some(InferenceConfig {
@@ -791,12 +791,12 @@ mod sigv4 {
         region: &str,
         access_key: &str,
         secret_key: &str,
-    ) -> Result<reqwest::Request, crabtalk_core::Error> {
+    ) -> Result<reqwest::Request, crabllm_core::Error> {
         let parsed = reqwest::Url::parse(url)
-            .map_err(|e| crabtalk_core::Error::Internal(format!("bad url: {e}")))?;
+            .map_err(|e| crabllm_core::Error::Internal(format!("bad url: {e}")))?;
         let host = parsed
             .host_str()
-            .ok_or_else(|| crabtalk_core::Error::Internal("url has no host".to_string()))?;
+            .ok_or_else(|| crabllm_core::Error::Internal("url has no host".to_string()))?;
         let path = parsed.path();
         let query = parsed.query().unwrap_or("");
 
@@ -835,7 +835,7 @@ mod sigv4 {
             .request(
                 method
                     .parse()
-                    .map_err(|e| crabtalk_core::Error::Internal(format!("bad method: {e}")))?,
+                    .map_err(|e| crabllm_core::Error::Internal(format!("bad method: {e}")))?,
                 url,
             )
             .header("content-type", "application/json")
@@ -845,7 +845,7 @@ mod sigv4 {
             .header("authorization", &authorization)
             .body(body.to_vec())
             .build()
-            .map_err(|e| crabtalk_core::Error::Internal(format!("build request: {e}")))?;
+            .map_err(|e| crabllm_core::Error::Internal(format!("build request: {e}")))?;
 
         Ok(req)
     }

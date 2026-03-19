@@ -1,5 +1,5 @@
 use axum::{Json, Router, routing::get};
-use crabtalk_core::{
+use crabllm_core::{
     BoxFuture, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, ExtensionError,
     Prefix, PricingConfig, RequestContext, Storage, cost, storage_key,
 };
@@ -92,7 +92,7 @@ impl Budget {
     }
 }
 
-impl crabtalk_core::Extension for Budget {
+impl crabllm_core::Extension for Budget {
     fn name(&self) -> &str {
         "budget"
     }
@@ -180,7 +180,7 @@ async fn budget_handler(
 
     let mut entries = Vec::new();
     for (raw_key, raw_value) in &pairs {
-        let suffix = match std::str::from_utf8(&raw_key[crabtalk_core::PREFIX_LEN..]) {
+        let suffix = match std::str::from_utf8(&raw_key[crabllm_core::PREFIX_LEN..]) {
             Ok(s) => s,
             Err(_) => continue,
         };

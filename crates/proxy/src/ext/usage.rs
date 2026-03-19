@@ -1,5 +1,5 @@
 use axum::{Json, Router, routing::get};
-use crabtalk_core::{
+use crabllm_core::{
     BoxFuture, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Prefix,
     RequestContext, Storage, storage_key,
 };
@@ -58,7 +58,7 @@ impl UsageTracker {
     }
 }
 
-impl crabtalk_core::Extension for UsageTracker {
+impl crabllm_core::Extension for UsageTracker {
     fn name(&self) -> &str {
         "usage"
     }
@@ -122,7 +122,7 @@ async fn usage_handler(storage: Arc<dyn Storage>, prefix: Prefix) -> Json<Vec<Us
 
     for (raw_key, raw_value) in &pairs {
         // Skip the prefix bytes, parse the suffix as UTF-8.
-        let suffix = match std::str::from_utf8(&raw_key[crabtalk_core::PREFIX_LEN..]) {
+        let suffix = match std::str::from_utf8(&raw_key[crabllm_core::PREFIX_LEN..]) {
             Ok(s) => s,
             Err(_) => continue,
         };

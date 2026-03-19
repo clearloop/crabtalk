@@ -1,5 +1,5 @@
 use axum::{Router, http::StatusCode, routing::delete};
-use crabtalk_core::{
+use crabllm_core::{
     BoxFuture, ChatCompletionRequest, ChatCompletionResponse, Prefix, RequestContext, Storage,
     storage_key,
 };
@@ -75,7 +75,7 @@ impl Cache {
     }
 }
 
-impl crabtalk_core::Extension for Cache {
+impl crabllm_core::Extension for Cache {
     fn name(&self) -> &str {
         "cache"
     }

@@ -333,14 +333,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "crabtalk"
+name = "crabllm"
 version = "0.0.6"
 dependencies = [
  "axum",
  "clap",
- "crabtalk-core",
- "crabtalk-provider",
- "crabtalk-proxy",
+ "crabllm-core",
+ "crabllm-provider",
+ "crabllm-proxy",
  "reqwest",
  "serde_json",
  "tokio",
@@ -348,19 +348,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "crabtalk-bench"
+name = "crabllm-bench"
 version = "0.0.6"
 dependencies = [
  "axum",
  "clap",
- "crabtalk-core",
+ "crabllm-core",
  "futures",
  "serde_json",
  "tokio",
 ]
 
 [[package]]
-name = "crabtalk-core"
+name = "crabllm-core"
 version = "0.0.6"
 dependencies = [
  "serde",
@@ -369,11 +369,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "crabtalk-provider"
+name = "crabllm-provider"
 version = "0.0.6"
 dependencies = [
  "bytes",
- "crabtalk-core",
+ "crabllm-core",
  "futures",
  "hmac",
  "rand 0.9.2",
@@ -385,13 +385,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "crabtalk-proxy"
+name = "crabllm-proxy"
 version = "0.0.6"
 dependencies = [
  "axum",
  "bytes",
- "crabtalk-core",
- "crabtalk-provider",
+ "crabllm-core",
+ "crabllm-provider",
  "dashmap",
  "futures",
  "rand 0.9.2",

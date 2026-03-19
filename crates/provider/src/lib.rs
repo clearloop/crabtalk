@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use crabtalk_core::{
+use crabllm_core::{
     AudioSpeechRequest, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse,
     EmbeddingRequest, EmbeddingResponse, Error, ImageRequest, ProviderConfig, ProviderKind,
 };

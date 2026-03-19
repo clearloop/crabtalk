@@ -1,4 +1,4 @@
-use crabtalk_core::{BoxFuture, Error, KvPairs, Prefix, Storage};
+use crabllm_core::{BoxFuture, Error, KvPairs, Prefix, Storage};
 use dashmap::DashMap;
 use std::sync::atomic::{AtomicI64, Ordering};
 

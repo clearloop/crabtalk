@@ -1,5 +1,5 @@
 use ::redis::AsyncCommands;
-use crabtalk_core::{BoxFuture, Error, KvPairs, Prefix, Storage};
+use crabllm_core::{BoxFuture, Error, KvPairs, Prefix, Storage};
 
 pub struct RedisStorage {
     conn: ::redis::aio::MultiplexedConnection,

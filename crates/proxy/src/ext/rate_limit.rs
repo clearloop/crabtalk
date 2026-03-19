@@ -1,4 +1,4 @@
-use crabtalk_core::{
+use crabllm_core::{
     BoxFuture, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, ExtensionError,
     Prefix, RequestContext, Storage,
 };
@@ -52,7 +52,7 @@ fn current_minute() -> u64 {
         / 60
 }
 
-impl crabtalk_core::Extension for RateLimit {
+impl crabllm_core::Extension for RateLimit {
     fn name(&self) -> &str {
         "rate_limit"
     }

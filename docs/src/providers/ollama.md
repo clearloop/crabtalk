@@ -25,11 +25,11 @@ No API key is needed for local Ollama.
 
 ## Usage
 
-Start Ollama, pull a model, then send requests through crabtalk:
+Start Ollama, pull a model, then send requests through crabllm:
 
 ```bash
 ollama pull llama3.2
-crabtalk --config crabtalk.toml
+crabllm --config crabllm.toml
 ```
 
 ```bash

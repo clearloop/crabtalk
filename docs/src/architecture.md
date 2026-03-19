@@ -12,9 +12,9 @@
 ## Workspace Layout
 
 ```
-crabtalk/
+crabllm/
   crates/
-    crabtalk/   — binary, wires everything together
+    crabllm/   — binary, wires everything together
     core/       — shared types, config, errors
     provider/   — provider enum + translation modules
     proxy/      — HTTP server, routing, extensions
@@ -23,7 +23,7 @@ crabtalk/
 
 ## Crates
 
-### crabtalk
+### crabllm
 
 Binary entry point. Loads TOML config, builds the provider registry, initializes
 the storage backend and extensions, starts the Axum HTTP server. CLI args:
@@ -52,7 +52,7 @@ in-handler hooks.
 
 ## Request Flow
 
-1. Client sends OpenAI-format request to crabtalk.
+1. Client sends OpenAI-format request to crabllm.
 2. Auth middleware validates the bearer token.
 3. Handler resolves model name (aliases) and gets deployment list.
 4. Extension `on_request` hooks run (rate limit, budget check).

@@ -1,8 +1,8 @@
-# crabtalk-provider
+# crabllm-provider
 
 [![crates.io][badge]][crate]
 
-Provider dispatch for the [crabtalk](https://github.com/clearloop/crabtalk) LLM API gateway.
+Provider dispatch for the [crabllm](https://github.com/clearloop/crabllm) LLM API gateway.
 
 Routes requests to upstream LLM providers via the `Provider` enum:
 
@@ -19,5 +19,5 @@ model aliasing.
 
 MIT OR Apache-2.0
 
-[badge]: https://img.shields.io/crates/v/crabtalk-provider.svg
-[crate]: https://crates.io/crates/crabtalk-provider
+[badge]: https://img.shields.io/crates/v/crabllm-provider.svg
+[crate]: https://crates.io/crates/crabllm-provider

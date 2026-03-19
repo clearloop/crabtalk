@@ -1,5 +1,5 @@
 use crate::Provider;
-use crabtalk_core::{Error, GatewayConfig};
+use crabllm_core::{Error, GatewayConfig};
 use rand::Rng;
 use std::{collections::HashMap, time::Duration};
 

@@ -14,7 +14,7 @@ models = ["claude-sonnet-4-20250514", "claude-haiku-4-20250514"]
 
 ## Translation
 
-Crabtalk handles the full translation between OpenAI and Anthropic formats:
+Crabllm handles the full translation between OpenAI and Anthropic formats:
 
 - **System messages** — extracted from the messages array and sent as the
   Anthropic `system` parameter.

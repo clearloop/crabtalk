@@ -1,11 +1,11 @@
 [package]
-name = "crabtalk-provider"
+name = "crabllm-provider"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "README.md"
-description = "Provider dispatch for the crabtalk LLM API gateway"
+description = "Provider dispatch for the crabllm LLM API gateway"
 keywords = ["llm", "openai", "anthropic", "gemini", "bedrock"]
 categories = ["web-programming::http-client", "network-programming"]
 
@@ -13,7 +13,7 @@ categories = ["web-programming::http-client", "network-programming"]
 provider-bedrock = ["hmac", "sha2"]
 
 [dependencies]
-crabtalk-core.workspace = true
+crabllm-core.workspace = true
 
 # crates-io
 bytes.workspace = true

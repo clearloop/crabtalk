@@ -1,6 +1,6 @@
 # Streaming
 
-Crabtalk supports Server-Sent Events (SSE) streaming for chat completions across
+Crabllm supports Server-Sent Events (SSE) streaming for chat completions across
 all providers. Streams are proxied without buffering — tokens arrive
 incrementally as the provider generates them.
 
@@ -30,7 +30,7 @@ data: [DONE]
 
 ## Provider Translation
 
-For non-OpenAI providers, crabtalk translates the provider's native streaming
+For non-OpenAI providers, crabllm translates the provider's native streaming
 format to OpenAI-compatible SSE chunks:
 
 - **Anthropic** — `message_start`, `content_block_delta` events translated to

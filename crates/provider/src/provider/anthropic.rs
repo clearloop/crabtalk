@@ -1,5 +1,5 @@
 use bytes::{Buf, BytesMut};
-use crabtalk_core::{
+use crabllm_core::{
     ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice, Delta,
     Error, FinishReason, FunctionCall, FunctionCallDelta, Message, Role, Stop, ToolCall,
     ToolCallDelta, ToolChoice, ToolType, Usage,
