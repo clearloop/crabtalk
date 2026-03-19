@@ -1,7 +1,7 @@
 use clap::Parser;
-use crabtalk_core::{Extension, GatewayConfig, Storage};
-use crabtalk_provider::ProviderRegistry;
-use crabtalk_proxy::{
+use crabllm_core::{Extension, GatewayConfig, Storage};
+use crabllm_provider::ProviderRegistry;
+use crabllm_proxy::{
     AppState,
     ext::{
         budget::Budget, cache::Cache, logging::RequestLogger, rate_limit::RateLimit,
@@ -12,10 +12,10 @@ use crabtalk_proxy::{
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 #[derive(Parser)]
-#[command(name = "crabtalk", about = "High-performance LLM API gateway")]
+#[command(name = "crabllm", about = "High-performance LLM API gateway")]
 struct Cli {
     /// Path to config file
-    #[arg(short, long, default_value = "crabtalk.toml")]
+    #[arg(short, long, default_value = "crabllm.toml")]
     config: PathBuf,
 
     /// Override listen address (e.g. 0.0.0.0:8080)
@@ -61,7 +61,7 @@ async fn main() {
                 .as_ref()
                 .and_then(|s| s.path.as_deref())
                 .unwrap_or("redis://127.0.0.1:6379");
-            let storage = match crabtalk_proxy::storage::RedisStorage::open(url).await {
+            let storage = match crabllm_proxy::storage::RedisStorage::open(url).await {
                 Ok(s) => Arc::new(s),
                 Err(e) => {
                     eprintln!("error: failed to open redis storage: {e}");
@@ -81,9 +81,9 @@ async fn main() {
                 .storage
                 .as_ref()
                 .and_then(|s| s.path.as_deref())
-                .unwrap_or("crabtalk.db");
+                .unwrap_or("crabllm.db");
             let url = format!("sqlite:{path}?mode=rwc");
-            let storage = match crabtalk_proxy::storage::SqliteStorage::open(&url).await {
+            let storage = match crabllm_proxy::storage::SqliteStorage::open(&url).await {
                 Ok(s) => Arc::new(s),
                 Err(e) => {
                     eprintln!("error: failed to open sqlite storage: {e}");
@@ -139,7 +139,7 @@ async fn run<S: Storage + 'static>(
         key_map,
     };
 
-    let app = crabtalk_proxy::router(state, admin_routes);
+    let app = crabllm_proxy::router(state, admin_routes);
     let listener = match tokio::net::TcpListener::bind(&addr).await {
         Ok(l) => l,
         Err(e) => {
@@ -149,7 +149,7 @@ async fn run<S: Storage + 'static>(
     };
 
     eprintln!(
-        "crabtalk listening on {addr} ({model_count} models, {provider_count} providers, {ext_count} extensions)"
+        "crabllm listening on {addr} ({model_count} models, {provider_count} providers, {ext_count} extensions)"
     );
 
     let server =

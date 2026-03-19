@@ -20,7 +20,7 @@ models = ["gpt-4o"]
 
 ## How It Works
 
-Crabtalk rewrites the URL to Azure's deployment-based pattern:
+Crabllm rewrites the URL to Azure's deployment-based pattern:
 
 ```
 POST /openai/deployments/{model}/chat/completions?api-version={api_version}

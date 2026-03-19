@@ -1,8 +1,8 @@
-# crabtalk-core
+# crabllm-core
 
 [![crates.io][badge]][crate]
 
-Core types for the [crabtalk](https://github.com/clearloop/crabtalk) LLM API gateway.
+Core types for the [crabllm](https://github.com/clearloop/crabllm) LLM API gateway.
 
 - **Config** — `GatewayConfig`, `ProviderConfig`, `ProviderKind`, `KeyConfig`, `StorageConfig`, `PricingConfig`
 - **Types** — OpenAI-compatible wire format: `ChatCompletionRequest`/`Response`/`Chunk`, `EmbeddingRequest`/`Response`, `ImageRequest`, `AudioSpeechRequest`, `ModelList`
@@ -14,5 +14,5 @@ Core types for the [crabtalk](https://github.com/clearloop/crabtalk) LLM API gat
 
 MIT OR Apache-2.0
 
-[badge]: https://img.shields.io/crates/v/crabtalk-core.svg
-[crate]: https://crates.io/crates/crabtalk-core
+[badge]: https://img.shields.io/crates/v/crabllm-core.svg
+[crate]: https://crates.io/crates/crabllm-core

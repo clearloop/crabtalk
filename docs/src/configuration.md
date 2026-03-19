@@ -1,9 +1,9 @@
 # Configuration
 
-Crabtalk is configured via a TOML file, passed with `--config`:
+Crabllm is configured via a TOML file, passed with `--config`:
 
 ```bash
-crabtalk --config crabtalk.toml
+crabllm --config crabllm.toml
 ```
 
 The `--bind` flag overrides the `listen` address.
@@ -125,7 +125,7 @@ kind = "memory"
 | Kind | Feature flag | `path` field |
 |------|-------------|--------------|
 | `memory` | none (default) | not used |
-| `sqlite` | `storage-sqlite` | file path, e.g. `"crabtalk.db"` |
+| `sqlite` | `storage-sqlite` | file path, e.g. `"crabllm.db"` |
 | `redis` | `storage-redis` | URL, e.g. `"redis://127.0.0.1:6379"` |
 
 See [Storage](features/storage.md) for details.
@@ -176,5 +176,5 @@ level = "info"
 
 [storage]
 kind = "sqlite"
-path = "crabtalk.db"
+path = "crabllm.db"
 ```

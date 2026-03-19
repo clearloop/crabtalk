@@ -1,4 +1,4 @@
-use crabtalk_core::{
+use crabllm_core::{
     BoxFuture, ChatCompletionRequest, ChatCompletionResponse, Error, Prefix, RequestContext,
 };
 
@@ -10,7 +10,7 @@ impl RequestLogger {
     }
 }
 
-impl crabtalk_core::Extension for RequestLogger {
+impl crabllm_core::Extension for RequestLogger {
     fn name(&self) -> &str {
         "logging"
     }

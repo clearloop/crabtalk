@@ -1,6 +1,6 @@
 # Authentication
 
-Crabtalk supports virtual API keys for client authentication and model access
+Crabllm supports virtual API keys for client authentication and model access
 control.
 
 ## Virtual Keys

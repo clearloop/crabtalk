@@ -1,11 +1,11 @@
 [package]
-name = "crabtalk-core"
+name = "crabllm-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 readme = "README.md"
-description = "Core types for the crabtalk LLM API gateway"
+description = "Core types for the crabllm LLM API gateway"
 keywords = ["llm", "openai", "api", "types", "gateway"]
 categories = ["data-structures", "web-programming"]
 

@@ -1,8 +1,8 @@
-# crabtalk-proxy
+# crabllm-proxy
 
 [![crates.io][badge]][crate]
 
-HTTP proxy server for the [crabtalk](https://github.com/clearloop/crabtalk) LLM API gateway.
+HTTP proxy server for the [crabllm](https://github.com/clearloop/crabllm) LLM API gateway.
 
 Axum-based HTTP server providing:
 
@@ -19,5 +19,5 @@ Axum-based HTTP server providing:
 
 MIT OR Apache-2.0
 
-[badge]: https://img.shields.io/crates/v/crabtalk-proxy.svg
-[crate]: https://crates.io/crates/crabtalk-proxy
+[badge]: https://img.shields.io/crates/v/crabllm-proxy.svg
+[crate]: https://crates.io/crates/crabllm-proxy

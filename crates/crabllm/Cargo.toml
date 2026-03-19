@@ -1,5 +1,5 @@
 [package]
-name = "crabtalk"
+name = "crabllm"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,18 +10,21 @@ keywords = ["llm", "gateway", "proxy", "openai", "anthropic"]
 categories = ["command-line-utilities", "web-programming::http-server"]
 
 [features]
-storage-redis = ["crabtalk-proxy/storage-redis"]
-storage-sqlite = ["crabtalk-proxy/storage-sqlite"]
-provider-bedrock = ["crabtalk-provider/provider-bedrock"]
+default = ["rustls-tls"]
+native-tls = ["crabllm-proxy/native-tls"]
+rustls-tls = ["crabllm-proxy/rustls-tls"]
+storage-redis = ["crabllm-proxy/storage-redis"]
+storage-sqlite = ["crabllm-proxy/storage-sqlite"]
+provider-bedrock = ["crabllm-provider/provider-bedrock"]
 
 [[bin]]
-name = "crabtalk"
+name = "crabllm"
 path = "src/bin/main.rs"
 
 [dependencies]
-crabtalk-core = { workspace = true, features = ["gateway"] }
-crabtalk-provider.workspace = true
-crabtalk-proxy.workspace = true
+crabllm-core = { workspace = true, features = ["gateway"] }
+crabllm-provider.workspace = true
+crabllm-proxy.workspace = true
 
 # crates-io
 axum.workspace = true

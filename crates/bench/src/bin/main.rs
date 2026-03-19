@@ -7,7 +7,7 @@ use axum::{
     routing::{get, post},
 };
 use clap::Parser;
-use crabtalk_core::{
+use crabllm_core::{
     ChatCompletionChunk, ChatCompletionResponse, Choice, ChunkChoice, Delta, Embedding,
     EmbeddingResponse, EmbeddingUsage, FinishReason, Message, Model, ModelList, Role, Usage,
 };
@@ -15,10 +15,7 @@ use futures::stream;
 use std::sync::Arc;
 
 #[derive(Parser)]
-#[command(
-    name = "crabtalk-bench",
-    about = "Mock OpenAI backend for benchmarking"
-)]
+#[command(name = "crabllm-bench", about = "Mock OpenAI backend for benchmarking")]
 struct Cli {
     /// Port to listen on
     #[arg(short, long, default_value = "9999")]

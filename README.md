@@ -1,12 +1,12 @@
-# crabtalk
+# crabllm
 
-[![crates.io][crabtalk-badge]][crabtalk-crate]
+[![crates.io][crabllm-badge]][crabllm-crate]
 
 High-performance LLM API gateway in Rust, used by [OpenWalrus][openwalrus].
 
 ## What It Does
 
-Crabtalk sits between your application and LLM providers. It exposes an
+Crabllm sits between your application and LLM providers. It exposes an
 OpenAI-compatible API and routes requests to the configured provider —
 OpenAI, Anthropic, Azure, Ollama, and any OpenAI-compatible service.
 
@@ -20,10 +20,10 @@ See the [docs][docs] for [providers][providers], [routing][routing],
 ## Quick Start
 
 ```bash
-cargo install crabtalk
+cargo install crabllm
 ```
 
-Create `crabtalk.toml`:
+Create `crabllm.toml`:
 
 ```toml
 listen = "0.0.0.0:8080"
@@ -42,7 +42,7 @@ models = ["claude-sonnet-4-20250514"]
 Run:
 
 ```bash
-crabtalk --config crabtalk.toml
+crabllm --config crabllm.toml
 ```
 
 Send requests using the OpenAI format:
@@ -68,22 +68,22 @@ curl http://localhost:8080/v1/chat/completions \
 
 | Crate               | Description                                                  |
 | ------------------- | ------------------------------------------------------------ |
-| `crabtalk`          | Binary entry point (CLI + server startup)                    |
-| `crabtalk-core`     | Shared types: config, OpenAI-format request/response, errors |
-| `crabtalk-provider` | Provider enum, registry, and upstream HTTP dispatch          |
-| `crabtalk-proxy`    | Axum HTTP server, route handlers, auth middleware            |
+| `crabllm`          | Binary entry point (CLI + server startup)                    |
+| `crabllm-core`     | Shared types: config, OpenAI-format request/response, errors |
+| `crabllm-provider` | Provider enum, registry, and upstream HTTP dispatch          |
+| `crabllm-proxy`    | Axum HTTP server, route handlers, auth middleware            |
 
 ## License
 
 MIT OR Apache-2.0
 
 
-[crabtalk-badge]: https://img.shields.io/crates/v/crabtalk.svg
-[crabtalk-crate]: https://crates.io/crates/crabtalk
+[crabllm-badge]: https://img.shields.io/crates/v/crabllm.svg
+[crabllm-crate]: https://crates.io/crates/crabllm
 [openwalrus]: https://openwalrus.xyz
 [litellm]: https://github.com/BerriAI/litellm
-[docs]: https://clearloop.github.io/crabtalk
-[providers]: https://clearloop.github.io/crabtalk/providers/overview.html
-[routing]: https://clearloop.github.io/crabtalk/features/routing.html
-[extensions]: https://clearloop.github.io/crabtalk/features/extensions.html
-[configuration]: https://clearloop.github.io/crabtalk/configuration.html
+[docs]: https://clearloop.github.io/crabllm
+[providers]: https://clearloop.github.io/crabllm/providers/overview.html
+[routing]: https://clearloop.github.io/crabllm/features/routing.html
+[extensions]: https://clearloop.github.io/crabllm/features/extensions.html
+[configuration]: https://clearloop.github.io/crabllm/configuration.html

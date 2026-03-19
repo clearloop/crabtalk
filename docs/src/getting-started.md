@@ -3,12 +3,12 @@
 ## Install
 
 ```bash
-cargo install crabtalk
+cargo install crabllm
 ```
 
 ## Configure
 
-Create a `crabtalk.toml` file:
+Create a `crabllm.toml` file:
 
 ```toml
 listen = "0.0.0.0:8080"
@@ -29,13 +29,13 @@ Environment variables in `${VAR}` syntax are expanded at startup.
 ## Run
 
 ```bash
-crabtalk --config crabtalk.toml
+crabllm --config crabllm.toml
 ```
 
 You'll see:
 
 ```
-crabtalk listening on 0.0.0.0:8080 (3 models, 2 providers, 0 extensions)
+crabllm listening on 0.0.0.0:8080 (3 models, 2 providers, 0 extensions)
 ```
 
 ## Send a Request
@@ -62,7 +62,7 @@ curl http://localhost:8080/v1/chat/completions \
   }'
 ```
 
-The request format is the same. Crabtalk translates it to the Anthropic Messages
+The request format is the same. Crabllm translates it to the Anthropic Messages
 API internally.
 
 ## Streaming

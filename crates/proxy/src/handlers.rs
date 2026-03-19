@@ -8,11 +8,11 @@ use axum::{
         sse::{Event, Sse},
     },
 };
-use crabtalk_core::{
+use crabllm_core::{
     ApiError, AudioSpeechRequest, ChatCompletionRequest, EmbeddingRequest, ImageRequest, Model,
     ModelList, RequestContext, Storage,
 };
-use crabtalk_provider::Deployment;
+use crabllm_provider::Deployment;
 use futures::StreamExt;
 use rand::Rng;
 use std::sync::Arc;
@@ -122,9 +122,8 @@ pub async fn chat_completions<S: Storage + 'static>(
             }
         }
 
-        let e = last_err.unwrap_or_else(|| {
-            crabtalk_core::Error::Internal("no providers available".to_string())
-        });
+        let e = last_err
+            .unwrap_or_else(|| crabllm_core::Error::Internal("no providers available".to_string()));
         for ext in state.extensions.iter() {
             ext.on_error(&ctx, &e).await;
         }
@@ -150,9 +149,8 @@ pub async fn chat_completions<S: Storage + 'static>(
             }
         }
 
-        let e = last_err.unwrap_or_else(|| {
-            crabtalk_core::Error::Internal("no providers available".to_string())
-        });
+        let e = last_err
+            .unwrap_or_else(|| crabllm_core::Error::Internal("no providers available".to_string()));
         for ext in state.extensions.iter() {
             ext.on_error(&ctx, &e).await;
         }
@@ -216,7 +214,7 @@ pub async fn embeddings<S: Storage + 'static>(
     }
 
     let e =
-        last_err.unwrap_or_else(|| crabtalk_core::Error::Internal("no providers available".into()));
+        last_err.unwrap_or_else(|| crabllm_core::Error::Internal("no providers available".into()));
     for ext in state.extensions.iter() {
         ext.on_error(&ctx, &e).await;
     }
@@ -232,7 +230,7 @@ pub async fn models<S: Storage + 'static>(State(state): State<AppState<S>>) -> J
             id: name.to_string(),
             object: "model".to_string(),
             created: 0,
-            owned_by: "crabtalk".to_string(),
+            owned_by: "crabllm".to_string(),
         })
         .collect();
 
@@ -307,7 +305,7 @@ pub async fn image_generations<S: Storage + 'static>(
     }
 
     let e =
-        last_err.unwrap_or_else(|| crabtalk_core::Error::Internal("no providers available".into()));
+        last_err.unwrap_or_else(|| crabllm_core::Error::Internal("no providers available".into()));
     for ext in state.extensions.iter() {
         ext.on_error(&ctx, &e).await;
     }
@@ -377,7 +375,7 @@ pub async fn audio_speech<S: Storage + 'static>(
     }
 
     let e =
-        last_err.unwrap_or_else(|| crabtalk_core::Error::Internal("no providers available".into()));
+        last_err.unwrap_or_else(|| crabllm_core::Error::Internal("no providers available".into()));
     for ext in state.extensions.iter() {
         ext.on_error(&ctx, &e).await;
     }
@@ -525,7 +523,7 @@ pub async fn audio_transcriptions<S: Storage + 'static>(
     }
 
     let e =
-        last_err.unwrap_or_else(|| crabtalk_core::Error::Internal("no providers available".into()));
+        last_err.unwrap_or_else(|| crabllm_core::Error::Internal("no providers available".into()));
     for ext in state.extensions.iter() {
         ext.on_error(&ctx, &e).await;
     }
@@ -534,16 +532,16 @@ pub async fn audio_transcriptions<S: Storage + 'static>(
 
 /// Call a provider with a timeout, converting elapsed to Error::Timeout.
 /// A zero duration disables the timeout.
-async fn with_timeout<F, T>(timeout: Duration, fut: F) -> Result<T, crabtalk_core::Error>
+async fn with_timeout<F, T>(timeout: Duration, fut: F) -> Result<T, crabllm_core::Error>
 where
-    F: std::future::Future<Output = Result<T, crabtalk_core::Error>>,
+    F: std::future::Future<Output = Result<T, crabllm_core::Error>>,
 {
     if timeout.is_zero() {
         return fut.await;
     }
     match tokio::time::timeout(timeout, fut).await {
         Ok(result) => result,
-        Err(_elapsed) => Err(crabtalk_core::Error::Timeout),
+        Err(_elapsed) => Err(crabllm_core::Error::Timeout),
     }
 }
 
@@ -558,7 +556,7 @@ async fn try_chat_with_retries(
     deployment: &Deployment,
     client: &reqwest::Client,
     request: &ChatCompletionRequest,
-) -> Result<crabtalk_core::ChatCompletionResponse, crabtalk_core::Error> {
+) -> Result<crabllm_core::ChatCompletionResponse, crabllm_core::Error> {
     let mut last_err;
     match with_timeout(
         deployment.timeout,
@@ -606,9 +604,9 @@ async fn try_stream_with_retries(
 ) -> Result<
     futures::stream::BoxStream<
         'static,
-        Result<crabtalk_core::ChatCompletionChunk, crabtalk_core::Error>,
+        Result<crabllm_core::ChatCompletionChunk, crabllm_core::Error>,
     >,
-    crabtalk_core::Error,
+    crabllm_core::Error,
 > {
     let mut last_err;
     match with_timeout(
@@ -654,7 +652,7 @@ async fn try_embedding_with_retries(
     deployment: &Deployment,
     client: &reqwest::Client,
     request: &EmbeddingRequest,
-) -> Result<crabtalk_core::EmbeddingResponse, crabtalk_core::Error> {
+) -> Result<crabllm_core::EmbeddingResponse, crabllm_core::Error> {
     let mut last_err;
     match with_timeout(
         deployment.timeout,
@@ -695,13 +693,13 @@ async fn try_embedding_with_retries(
 }
 
 /// Map a provider Error to an HTTP error response.
-fn error_response(e: crabtalk_core::Error) -> Response {
+fn error_response(e: crabllm_core::Error) -> Response {
     let (status, api_error) = match &e {
-        crabtalk_core::Error::Provider { status, body } => (
+        crabllm_core::Error::Provider { status, body } => (
             StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_GATEWAY),
             ApiError::new(body.clone(), "upstream_error"),
         ),
-        crabtalk_core::Error::Timeout => (
+        crabllm_core::Error::Timeout => (
             StatusCode::GATEWAY_TIMEOUT,
             ApiError::new(e.to_string(), "timeout_error"),
         ),

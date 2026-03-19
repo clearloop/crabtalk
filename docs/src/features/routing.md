@@ -1,11 +1,11 @@
 # Routing
 
-Crabtalk decides which provider handles a request based on model name, routing
+Crabllm decides which provider handles a request based on model name, routing
 weights, and fallback logic.
 
 ## Model Resolution
 
-When a request arrives, crabtalk looks up the model name in the configured
+When a request arrives, crabllm looks up the model name in the configured
 providers. If the model is an alias, it resolves to the canonical name first
 (single-hop lookup).
 
@@ -33,7 +33,7 @@ Selection is stateless — no shared counters. Each request picks independently.
 ## Retry
 
 When a provider returns a transient error (HTTP 429, 500, 502, 503, 504),
-crabtalk retries the same provider with exponential backoff:
+crabllm retries the same provider with exponential backoff:
 
 - Base delay: 100ms, doubling each retry.
 - Full jitter: each sleep is a random duration in `[backoff/2, backoff]` to
@@ -52,7 +52,7 @@ Set `max_retries = 0` to disable retry entirely.
 
 ## Fallback
 
-When retries are exhausted on a provider, crabtalk tries the next provider by
+When retries are exhausted on a provider, crabllm tries the next provider by
 descending weight. This continues until a provider succeeds or all providers
 have been tried.
 

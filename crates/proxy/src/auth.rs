@@ -6,7 +6,7 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use crabtalk_core::{ApiError, Storage};
+use crabllm_core::{ApiError, Storage};
 
 /// Wrapper for the authenticated key name, inserted into request extensions.
 #[derive(Clone, Debug)]

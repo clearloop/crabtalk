@@ -22,13 +22,13 @@ Persistent storage using SQLite via async pooled connections.
 ```toml
 [storage]
 kind = "sqlite"
-path = "crabtalk.db"
+path = "crabllm.db"
 ```
 
 Requires the `storage-sqlite` feature:
 
 ```bash
-cargo install crabtalk --features storage-sqlite
+cargo install crabllm --features storage-sqlite
 ```
 
 The database file is created automatically if it doesn't exist. Uses two tables
@@ -48,7 +48,7 @@ path = "redis://127.0.0.1:6379"
 Requires the `storage-redis` feature:
 
 ```bash
-cargo install crabtalk --features storage-redis
+cargo install crabllm --features storage-redis
 ```
 
 Supports standard Redis URLs. Increment maps to `INCRBY`, key listing uses

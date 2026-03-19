@@ -2,7 +2,7 @@ use axum::{
     Router, middleware,
     routing::{get, post},
 };
-use crabtalk_core::Storage;
+use crabllm_core::Storage;
 
 pub use auth::KeyName;
 pub use state::AppState;

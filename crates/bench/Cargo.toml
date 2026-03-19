@@ -1,16 +1,20 @@
 [package]
-name = "crabtalk-bench"
+name = "crabllm-bench"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Mock OpenAI backend for benchmarking crabtalk"
+repository.workspace = true
+readme = "README.md"
+description = "Mock OpenAI backend for benchmarking crabllm"
+keywords = ["llm", "benchmark", "mock", "openai", "testing"]
+categories = ["development-tools::testing"]
 
 [[bin]]
-name = "crabtalk-bench"
+name = "crabllm-bench"
 path = "src/bin/main.rs"
 
 [dependencies]
-crabtalk-core.workspace = true
+crabllm-core.workspace = true
 axum.workspace = true
 clap.workspace = true
 futures.workspace = true

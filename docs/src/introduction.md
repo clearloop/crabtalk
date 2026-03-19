@@ -1,20 +1,20 @@
 # Introduction
 
-Crabtalk is a high-performance LLM API gateway written in Rust. It sits between
+Crabllm is a high-performance LLM API gateway written in Rust. It sits between
 your application and LLM providers, exposing an OpenAI-compatible API surface.
 
 One API format. Many providers. Low overhead.
 
 ## What It Does
 
-You send requests in OpenAI format to crabtalk. It routes them to the configured
+You send requests in OpenAI format to crabllm. It routes them to the configured
 provider — OpenAI, Anthropic, Google Gemini, Azure OpenAI, AWS Bedrock, or
 Ollama — translating the request and response as needed.
 
-Your application talks to one endpoint. Crabtalk handles the rest:
+Your application talks to one endpoint. Crabllm handles the rest:
 
 - **Provider translation** — Anthropic, Google, and Bedrock have their own API
-  formats. Crabtalk translates automatically.
+  formats. Crabllm translates automatically.
 - **Routing** — Weighted random selection across multiple providers for the same
   model. Automatic fallback when a provider fails.
 - **Streaming** — SSE streaming proxied without buffering.
@@ -32,7 +32,7 @@ Your application talks to one endpoint. Crabtalk handles the rest:
 
 ## Feature Comparison
 
-| Feature | LiteLLM | Crabtalk |
+| Feature | LiteLLM | Crabllm |
 |---------|:-------:|:--------:|
 | `/chat/completions` | yes | yes |
 | `/embeddings` | yes | yes |

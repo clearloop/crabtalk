@@ -1,5 +1,5 @@
 use bytes::{Buf, BytesMut};
-use crabtalk_core::{
+use crabllm_core::{
     ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice, Delta,
     Error, FinishReason, FunctionCall, FunctionCallDelta, Message, Role, ToolCall, ToolCallDelta,
     ToolType, Usage,
@@ -221,8 +221,8 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
     };
 
     let stop_sequences = request.stop.as_ref().map(|s| match s {
-        crabtalk_core::Stop::Single(s) => vec![s.clone()],
-        crabtalk_core::Stop::Multiple(v) => v.clone(),
+        crabllm_core::Stop::Single(s) => vec![s.clone()],
+        crabllm_core::Stop::Multiple(v) => v.clone(),
     });
 
     let generation_config = Some(GenerationConfig {

@@ -8,7 +8,7 @@ SigV4 request signing. No AWS SDK dependency — signing is handled internally.
 Bedrock support requires the `provider-bedrock` cargo feature:
 
 ```bash
-cargo install crabtalk --features provider-bedrock
+cargo install crabllm --features provider-bedrock
 ```
 
 ## Configuration
