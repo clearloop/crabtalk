@@ -149,10 +149,10 @@ fn wait_for_health(child: &mut Child, port: u16, timeout: Duration) -> Result<()
             Ok(None) => {} // still running
         }
 
-        if let Ok(resp) = ureq::get(&url).call() {
-            if resp.status() == 200 {
-                return Ok(());
-            }
+        if let Ok(resp) = ureq::get(&url).call()
+            && resp.status() == 200
+        {
+            return Ok(());
         }
         std::thread::sleep(interval);
     }
