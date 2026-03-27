@@ -1,6 +1,6 @@
 use crate::Provider;
-use crate::llamacpp::{self, LlamaCppConfig, LlamaCppServer};
 use crabllm_core::{Error, GatewayConfig, ProviderKind};
+use crabllm_llamacpp::{self as llamacpp, LlamaCppConfig, LlamaCppServer};
 use rand::Rng;
 use std::{collections::HashMap, path::PathBuf, time::Duration};
 

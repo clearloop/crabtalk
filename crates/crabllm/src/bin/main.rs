@@ -40,6 +40,12 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum LlamaCppAction {
+    /// Download the llama-server binary for this platform
+    Download {
+        /// Release tag (e.g. b4567). Defaults to latest.
+        #[arg(short, long)]
+        tag: Option<String>,
+    },
     /// Check that llama-server is installed and reachable
     Check,
     /// Show the resolved path to the llama-server binary
@@ -60,8 +66,17 @@ async fn main() {
 
 fn run_llamacpp(action: LlamaCppAction) {
     match action {
+        LlamaCppAction::Download { tag } => match crabllm_llamacpp::download(tag.as_deref()) {
+            Ok(path) => {
+                eprintln!("llama-server ready at {}", path.display());
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        },
         LlamaCppAction::Check => {
-            match crabllm_provider::llamacpp::find_server_binary() {
+            match crabllm_llamacpp::find_server_binary() {
                 Ok(path) => {
                     eprintln!("llama-server found: {}", path.display());
                     let output = std::process::Command::new(&path).arg("--version").output();
@@ -89,7 +104,7 @@ fn run_llamacpp(action: LlamaCppAction) {
                 }
             }
         }
-        LlamaCppAction::Which => match crabllm_provider::llamacpp::find_server_binary() {
+        LlamaCppAction::Which => match crabllm_llamacpp::find_server_binary() {
             Ok(path) => println!("{}", path.display()),
             Err(e) => {
                 eprintln!("error: {e}");

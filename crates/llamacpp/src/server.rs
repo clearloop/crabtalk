@@ -6,6 +6,14 @@ use std::time::Duration;
 
 use crabllm_core::Error;
 
+/// Configuration needed to spawn a llama-server process.
+pub struct LlamaCppConfig {
+    pub model_path: PathBuf,
+    pub n_gpu_layers: u32,
+    pub n_ctx: u32,
+    pub n_threads: Option<u32>,
+}
+
 /// Managed llama-server child process.
 ///
 /// Owns the lifecycle of a `llama-server` binary: finding a free port,
@@ -19,14 +27,6 @@ use crabllm_core::Error;
 pub struct LlamaCppServer {
     child: Option<Child>,
     port: u16,
-}
-
-/// Configuration needed to spawn a llama-server process.
-pub struct LlamaCppConfig {
-    pub model_path: PathBuf,
-    pub n_gpu_layers: u32,
-    pub n_ctx: u32,
-    pub n_threads: Option<u32>,
 }
 
 impl LlamaCppServer {
@@ -51,9 +51,9 @@ impl LlamaCppServer {
             cmd.arg("--threads").arg(threads.to_string());
         }
 
-        // Stdout goes to /dev/null — llama-server writes everything useful
-        // to stderr. Piping stdout without reading it would block the process
-        // once the pipe buffer fills.
+        // Stdout goes to /dev/null (NUL on Windows) — llama-server writes
+        // everything useful to stderr. Piping stdout without reading it
+        // would block the process once the pipe buffer fills.
         cmd.stdout(Stdio::null());
         cmd.stderr(Stdio::piped());
 
@@ -161,27 +161,4 @@ fn wait_for_health(child: &mut Child, port: u16, timeout: Duration) -> Result<()
         "llama-server on port {port} did not become healthy within {}s",
         timeout.as_secs()
     )))
-}
-
-/// Find the `llama-server` binary.
-///
-/// Search order:
-/// 1. `$LLAMA_SERVER` environment variable
-/// 2. `llama-server` on `$PATH`
-pub fn find_server_binary() -> Result<PathBuf, Error> {
-    if let Ok(path) = std::env::var("LLAMA_SERVER") {
-        let p = PathBuf::from(&path);
-        if p.exists() {
-            return Ok(p);
-        }
-        return Err(Error::Internal(format!(
-            "LLAMA_SERVER={path} does not exist"
-        )));
-    }
-
-    which::which("llama-server").map_err(|_| {
-        Error::Internal(
-            "llama-server not found on PATH. Install it or set LLAMA_SERVER env var".to_string(),
-        )
-    })
 }
