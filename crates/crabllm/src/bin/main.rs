@@ -39,7 +39,7 @@ async fn main() {
         config.listen = bind;
     }
 
-    let registry = match ProviderRegistry::from_config(&config) {
+    let (registry, _llama_servers) = match ProviderRegistry::from_config(&config) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("error: failed to build provider registry: {e}");

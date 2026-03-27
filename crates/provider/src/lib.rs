@@ -5,6 +5,7 @@ use crabllm_core::{
 };
 use futures::stream::{BoxStream, StreamExt};
 
+pub use llamacpp::LlamaCppServer;
 pub use registry::{Deployment, ProviderRegistry};
 
 pub mod llamacpp;
