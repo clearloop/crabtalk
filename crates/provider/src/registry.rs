@@ -45,6 +45,19 @@ impl ProviderRegistry {
         // Validate all providers before spawning any llama-server processes.
         // This avoids starting (and then killing) servers when a later
         // config entry has an obvious error like a missing api_key.
+        //
+        // For LlamaCpp providers, we also resolve the binary path once here
+        // so we don't do redundant PATH lookups during spawn.
+        let has_llamacpp = config
+            .providers
+            .values()
+            .any(|c| c.kind == ProviderKind::LlamaCpp);
+        let llamacpp_bin = if has_llamacpp {
+            Some(llamacpp::find_server_binary()?)
+        } else {
+            None
+        };
+
         for (provider_name, provider_config) in &config.providers {
             if provider_config.kind == ProviderKind::LlamaCpp {
                 validate_llamacpp_config(provider_name, provider_config)?;
@@ -59,7 +72,8 @@ impl ProviderRegistry {
 
         for (provider_name, provider_config) in &config.providers {
             let provider = if provider_config.kind == ProviderKind::LlamaCpp {
-                let server = spawn_llamacpp_server(provider_name, provider_config)?;
+                let bin = llamacpp_bin.as_ref().expect("validated above");
+                let server = spawn_llamacpp_server(provider_name, provider_config, bin)?;
                 let base_url = server.base_url();
                 servers.push(server);
                 Provider::OpenAiCompat {
@@ -239,10 +253,6 @@ fn validate_llamacpp_config(
             "provider '{name}' (llamacpp) requires model_path"
         )));
     }
-    // Also ensure the binary is findable before we start spawning.
-    llamacpp::find_server_binary().map_err(|e| {
-        Error::Config(format!("provider '{name}' (llamacpp): {e}"))
-    })?;
     Ok(())
 }
 
@@ -250,13 +260,12 @@ fn validate_llamacpp_config(
 fn spawn_llamacpp_server(
     name: &str,
     config: &crabllm_core::ProviderConfig,
+    bin: &std::path::Path,
 ) -> Result<LlamaCppServer, Error> {
     let model_path = config
         .model_path
         .as_ref()
         .ok_or_else(|| Error::Config(format!("provider '{name}' (llamacpp) requires model_path")))?;
-
-    let bin = llamacpp::find_server_binary()?;
 
     eprintln!("starting llama-server for provider '{name}' (model: {model_path})");
 
@@ -267,7 +276,7 @@ fn spawn_llamacpp_server(
         n_threads: config.n_threads,
     };
 
-    let server = LlamaCppServer::spawn(&bin, &llama_config).map_err(|e| {
+    let server = LlamaCppServer::spawn(bin, &llama_config).map_err(|e| {
         Error::Config(format!(
             "provider '{name}': failed to start llama-server: {e}"
         ))
