@@ -9,7 +9,12 @@ use crabllm_proxy::{
     },
     storage::MemoryStorage,
 };
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    path::PathBuf,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 
 #[derive(Parser)]
 #[command(name = "crabllm", about = "High-performance LLM API gateway")]
@@ -213,11 +218,12 @@ async fn run<S: Storage + 'static>(
     let provider_count = config.providers.len();
     let shutdown_timeout = Duration::from_secs(config.shutdown_timeout);
 
-    let key_map = config
+    let key_map: HashMap<String, String> = config
         .keys
         .iter()
         .map(|k| (k.key.clone(), k.name.clone()))
         .collect();
+    let key_map = Arc::new(RwLock::new(key_map));
 
     let state = AppState {
         registry,

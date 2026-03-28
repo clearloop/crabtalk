@@ -39,6 +39,9 @@ pub struct GatewayConfig {
     /// Per-model token pricing for cost tracking and budget enforcement.
     #[serde(default)]
     pub pricing: HashMap<String, PricingConfig>,
+    /// Admin API bearer token. If set, enables /v1/admin/* endpoints.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub admin_token: Option<String>,
     /// Graceful shutdown timeout in seconds. Default: 30.
     #[serde(default = "default_shutdown_timeout")]
     pub shutdown_timeout: u64,
