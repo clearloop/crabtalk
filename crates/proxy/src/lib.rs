@@ -38,7 +38,10 @@ pub fn router<S: Storage + 'static>(state: AppState<S>, admin_routes: Vec<Router
         .with_state(state);
 
     // Health check — outside auth middleware so load balancers can probe it.
-    app = app.route("/health", get(|| async { Json(serde_json::json!({"status": "ok"})) }));
+    app = app.route(
+        "/health",
+        get(|| async { Json(serde_json::json!({"status": "ok"})) }),
+    );
 
     // Merge extension-provided admin routes (stateless — extensions
     // capture their own state via closures in the Router<()>).
