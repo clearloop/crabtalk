@@ -4,8 +4,8 @@ use crabllm_provider::ProviderRegistry;
 use crabllm_proxy::{
     AppState,
     ext::{
-        budget::Budget, cache::Cache, logging::RequestLogger, rate_limit::RateLimit,
-        usage::UsageTracker,
+        audit::AuditLogger, budget::Budget, cache::Cache, logging::RequestLogger,
+        rate_limit::RateLimit, usage::UsageTracker,
     },
     storage::MemoryStorage,
 };
@@ -326,9 +326,14 @@ fn build_extensions(
                 extensions.push(Box::new(ext));
                 has_logging = true;
             }
+            "audit" => {
+                let ext = AuditLogger::new(value, storage.clone(), config.pricing.clone())?;
+                admin_routes.push(ext.admin_routes());
+                extensions.push(Box::new(ext));
+            }
             unknown => {
                 return Err(format!(
-                    "unknown extension '{unknown}'. valid extensions: rate_limit, usage, cache, budget, logging"
+                    "unknown extension '{unknown}'. valid extensions: rate_limit, usage, cache, budget, logging, audit"
                 ));
             }
         }
