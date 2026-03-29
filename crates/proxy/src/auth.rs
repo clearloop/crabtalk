@@ -13,15 +13,21 @@ use crabllm_core::{ApiError, Storage};
 pub struct KeyName(pub Option<String>);
 
 /// Auth middleware: validates Bearer token against configured virtual keys.
-/// If no keys are configured, all requests pass through.
+/// Skips auth only when no admin_token is configured AND key_map is empty.
 /// Inserts `KeyName` into request extensions for downstream handlers.
 pub async fn auth<S: Storage + 'static>(
     State(state): State<AppState<S>>,
     mut request: Request,
     next: Next,
 ) -> Response {
-    // If no keys configured, skip auth entirely.
-    if state.config.keys.is_empty() {
+    // Skip auth when key management is disabled and no keys exist.
+    if state.config.admin_token.is_none()
+        && state
+            .key_map
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty()
+    {
         request.extensions_mut().insert(KeyName(None));
         return next.run(request).await;
     }
@@ -45,7 +51,14 @@ pub async fn auth<S: Storage + 'static>(
         }
     };
 
-    let Some(key_name) = state.key_map.get(token) else {
+    let key_name = state
+        .key_map
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(token)
+        .cloned();
+
+    let Some(key_name) = key_name else {
         return (
             StatusCode::UNAUTHORIZED,
             Json(ApiError::new("invalid API key", "authentication_error")),
@@ -53,9 +66,7 @@ pub async fn auth<S: Storage + 'static>(
             .into_response();
     };
 
-    request
-        .extensions_mut()
-        .insert(KeyName(Some(key_name.clone())));
+    request.extensions_mut().insert(KeyName(Some(key_name)));
 
     next.run(request).await
 }
