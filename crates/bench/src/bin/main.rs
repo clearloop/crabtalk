@@ -1,5 +1,5 @@
 use axum::{
-    Json, Router,
+    Router,
     http::StatusCode,
     response::{
         IntoResponse,
@@ -86,11 +86,7 @@ async fn chat_completions(
     body: axum::body::Bytes,
 ) -> axum::response::Response {
     if canned.should_error() {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ApiError::new("simulated upstream failure", "server_error")),
-        )
-            .into_response();
+        return (StatusCode::INTERNAL_SERVER_ERROR, canned.error_json.clone()).into_response();
     }
 
     // Check if streaming is requested by looking for "stream":true in the body.
