@@ -19,4 +19,4 @@ bench: bench-image
 
 # Generate charts from results
 bench-chart:
-	cd crates/bench && python3 chart.py
+	cd crates/bench && python3 bench.py --chart-only --output results

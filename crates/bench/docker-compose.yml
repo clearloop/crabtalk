@@ -53,7 +53,7 @@ services:
     image: crabllm-bench:local
     network_mode: host
     pid: host
-    command: ./compare.sh ${BENCH_ARGS:-}
+    command: python3 bench.py ${BENCH_ARGS:-}
     volumes:
       - ./results:/results
     depends_on:
