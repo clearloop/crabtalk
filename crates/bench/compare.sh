@@ -56,6 +56,27 @@ wait_for() {
     return 1
 }
 
+# Map gateway names to process names for memory tracking
+declare -A GW_PROC=(
+    [direct]="crabllm-bench"
+    [crabllm]="crabllm"
+    [bifrost]="bifrost"
+    [litellm]="litellm"
+)
+
+sample_memory_kb() {
+    local gw="$1"
+    local proc="${GW_PROC[$gw]:-}"
+    [ -z "$proc" ] && echo "0" && return
+    ps -eo comm,rss --no-headers 2>/dev/null | awk -v p="$proc" '$1 ~ p {print $2; exit}'
+}
+
+sample_memory() {
+    local kb
+    kb=$(sample_memory_kb "$1")
+    awk -v k="${kb:-0}" 'BEGIN{printf "%.1fMB", k/1024}'
+}
+
 # Adapt request body per gateway (bifrost requires openai/ model prefix)
 adapt_body() {
     local gw="$1" body="$2"
@@ -104,6 +125,9 @@ for gw in "${GW_LIST[@]}"; do
     fi
 done
 echo ""
+echo "==> Active gateways: ${ACTIVE_GWS[*]}"
+echo "==> Duration: ${DURATION}s per scenario, RPS levels: ${RPS_LEVELS}"
+echo ""
 
 # ── Request bodies ──
 
@@ -137,12 +161,19 @@ run_scenario() {
         local url="${GW_URLS[$gw]}"
         local gw_body
         gw_body=$(adapt_body "$gw" "$body")
-        echo "  [$gw] warming up..."
+        local mem mem_kb
+        mem=$(sample_memory "$gw")
+        echo "  [$gw] warming up... (mem: ${mem:-?})"
         warmup "$url" "$endpoint" "$gw_body"
         for rps in $rps_levels; do
             local outfile="$OUTDIR/${gw}-${name}-${rps}rps.json"
             echo "  [$gw] ${rps} RPS for ${DURATION}s..."
             run_oha "$url" "$endpoint" "$gw_body" "$rps" "$outfile"
+            mem_kb=$(sample_memory_kb "$gw")
+            mem=$(awk -v k="${mem_kb:-0}" 'BEGIN{printf "%.1fMB", k/1024}')
+            echo "  [$gw] done (mem: ${mem})"
+            # Save memory alongside oha results
+            echo "{\"memory_kb\":${mem_kb:-0}}" > "$OUTDIR/${gw}-${name}-${rps}rps.mem.json"
         done
     done
     echo ""

@@ -52,6 +52,7 @@ services:
   runner:
     image: crabllm-bench:local
     network_mode: host
+    pid: host
     command: ./compare.sh ${BENCH_ARGS:-}
     volumes:
       - ./results:/results

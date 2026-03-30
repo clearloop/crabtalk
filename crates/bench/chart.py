@@ -40,12 +40,22 @@ for fname in sorted(os.listdir(RESULTS_DIR)):
     if not p.get("p50"):
         continue
 
+    # Read memory sidecar if present
+    mem_kb = 0
+    mem_path = path.replace(".json", ".mem.json")
+    try:
+        with open(mem_path) as mf:
+            mem_kb = json.load(mf).get("memory_kb", 0)
+    except (json.JSONDecodeError, OSError, FileNotFoundError):
+        pass
+
     data[gw][scenario][level] = {
         "p50": p["p50"] * 1000,
         "p90": p["p90"] * 1000,
         "p99": p["p99"] * 1000,
         "rps": s.get("requestsPerSec", 0),
         "success": s.get("successRate", 0),
+        "memory_mb": mem_kb / 1024,
     }
 
 if not data:
@@ -144,6 +154,58 @@ def chart_overhead_summary():
             print(f"    {c}{gw:>8}{RESET} {c}{b}{RESET} {e['p50']:.2f}ms")
 
 
+def chart_memory():
+    """Show peak memory usage per gateway."""
+    print_header("Memory Usage (RSS)")
+
+    # Collect peak memory per gateway across all scenarios
+    peak = {}
+    for gw in gateways:
+        for scenario in data[gw]:
+            for level, e in data[gw][scenario].items():
+                mem = e.get("memory_mb", 0)
+                if mem > peak.get(gw, 0):
+                    peak[gw] = mem
+
+    if not any(peak.values()):
+        print(f"    {DIM}No memory data available{RESET}")
+        return
+
+    max_mem = max(peak.values()) if peak else 1
+
+    print(f"\n  {DIM}Peak RSS across all scenarios{RESET}")
+    for gw in gateways:
+        mem = peak.get(gw, 0)
+        if mem <= 0:
+            continue
+        c = ansi(gw)
+        b = bar(mem, max_mem)
+        print(f"    {c}{gw:>8}{RESET} {c}{b}{RESET} {mem:.1f}MB")
+
+    # Per-scenario breakdown at highest RPS
+    for scenario in all_scenarios:
+        entries = []
+        for gw in gateways:
+            levels = data[gw].get(scenario, {})
+            if levels:
+                top = max(levels.keys())
+                entries.append((gw, levels[top]))
+        if not entries:
+            continue
+
+        mems = [e.get("memory_mb", 0) for _, e in entries]
+        if not any(mems):
+            continue
+        max_val = max(mems) if mems else 1
+
+        print(f"\n  {DIM}{scenario} (max RPS){RESET}")
+        for gw, e in entries:
+            mem = e.get("memory_mb", 0)
+            c = ansi(gw)
+            b = bar(mem, max_val)
+            print(f"    {c}{gw:>8}{RESET} {c}{b}{RESET} {mem:.1f}MB")
+
+
 def chart_success_summary():
     """Show success rates where they're below 100%."""
     print_header("Success Rates (showing < 100% only)")
@@ -170,6 +232,7 @@ if not PNG_MODE:
     for scenario in all_scenarios:
         chart_latency_scenario(scenario)
     chart_overhead_summary()
+    chart_memory()
     chart_success_summary()
     print()
     sys.exit(0)
