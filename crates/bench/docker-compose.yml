@@ -16,7 +16,7 @@ services:
     network_mode: host
     command: crabllm serve --config /app/config/bench-docker.toml
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:6666/health"]
       interval: 1s
       retries: 10
     depends_on:
@@ -26,12 +26,11 @@ services:
   bifrost:
     image: maximhq/bifrost
     network_mode: host
+    command: -port 6668
     volumes:
       - ./config/bifrost.json:/app/config.json:ro
     environment:
       OPENAI_API_KEY: "mock-key"
-      BIFROST_PORT: "8081"
-      LOG_LEVEL: "error"
     depends_on:
       mock:
         condition: service_healthy
@@ -39,12 +38,13 @@ services:
   litellm:
     image: ghcr.io/berriai/litellm:main-stable
     network_mode: host
-    command: --config /app/config.yaml --port 4000 --log-level error
+    command: --config /app/config.yaml --port 4000
     volumes:
       - ./config/litellm.yaml:/app/config.yaml:ro
     environment:
       LITELLM_LOG: "ERROR"
       LITELLM_TELEMETRY: "False"
+      UVICORN_LOG_LEVEL: "error"
     depends_on:
       mock:
         condition: service_healthy

@@ -1,4 +1,4 @@
-listen = "0.0.0.0:8080"
+listen = "0.0.0.0:6666"
 
 [providers.mock]
 kind = "openai_compat"
