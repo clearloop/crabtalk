@@ -26,7 +26,7 @@ services:
   bifrost:
     image: maximhq/bifrost
     network_mode: host
-    command: -port 6668
+    command: -port 6668 -log-level error
     volumes:
       - ./config/bifrost.json:/app/config.json:ro
     environment:

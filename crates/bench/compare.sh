@@ -37,7 +37,7 @@ declare -A GW_URLS=(
 declare -A GW_HEALTH=(
     [direct]="http://localhost:9999/v1/models"
     [crabllm]="http://localhost:6666/health"
-    [bifrost]="http://localhost:6668/v1/models"
+    [bifrost]="http://localhost:6668/v1/chat/completions"
     [litellm]="http://localhost:4000/health/liveliness"
 )
 
@@ -54,6 +54,15 @@ wait_for() {
     done
     echo "WARNING: timed out waiting for $url"
     return 1
+}
+
+# Adapt request body per gateway (bifrost requires openai/ model prefix)
+adapt_body() {
+    local gw="$1" body="$2"
+    case "$gw" in
+        bifrost) echo "${body//\"model\":\"/\"model\":\"openai/}" ;;
+        *)       echo "$body" ;;
+    esac
 }
 
 run_oha() {
@@ -126,12 +135,14 @@ run_scenario() {
     echo "== Scenario: $name =="
     for gw in "${ACTIVE_GWS[@]}"; do
         local url="${GW_URLS[$gw]}"
+        local gw_body
+        gw_body=$(adapt_body "$gw" "$body")
         echo "  [$gw] warming up..."
-        warmup "$url" "$endpoint" "$body"
+        warmup "$url" "$endpoint" "$gw_body"
         for rps in $rps_levels; do
             local outfile="$OUTDIR/${gw}-${name}-${rps}rps.json"
             echo "  [$gw] ${rps} RPS for ${DURATION}s..."
-            run_oha "$url" "$endpoint" "$body" "$rps" "$outfile"
+            run_oha "$url" "$endpoint" "$gw_body" "$rps" "$outfile"
         done
     done
     echo ""
@@ -163,13 +174,15 @@ run_concurrent() {
         echo "== concurrent-streams-$conc =="
         for gw in "${ACTIVE_GWS[@]}"; do
             local url="${GW_URLS[$gw]}"
-            warmup "$url" "/v1/chat/completions" "$STREAM_BODY"
+            local gw_body
+            gw_body=$(adapt_body "$gw" "$STREAM_BODY")
+            warmup "$url" "/v1/chat/completions" "$gw_body"
             local outfile="$OUTDIR/${gw}-concurrent-${conc}.json"
             echo "  [$gw] $conc concurrent streams for ${DURATION}s..."
             oha -z "${DURATION}s" -c "$conc" \
                 -m POST \
                 -H "Content-Type: application/json" \
-                -d "$STREAM_BODY" \
+                -d "$gw_body" \
                 --output-format json \
                 --no-tui \
                 "${url}/v1/chat/completions" > "$outfile" 2>/dev/null || true
