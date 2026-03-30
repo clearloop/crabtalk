@@ -1,8 +1,7 @@
-FROM rust:1.87-slim-bookworm AS oha
-RUN cargo install oha --locked
-
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl jq ca-certificates && \
+    curl -fsSL https://github.com/hatoo/oha/releases/download/v1.14.0/oha-linux-amd64 \
+        -o /usr/local/bin/oha && \
+    chmod +x /usr/local/bin/oha && \
     rm -rf /var/lib/apt/lists/*
-COPY --from=oha /usr/local/cargo/bin/oha /usr/local/bin/oha
