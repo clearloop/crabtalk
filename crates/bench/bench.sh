@@ -11,7 +11,13 @@ set -euo pipefail
 #   ./bench.sh --rps "100 500"                  # custom RPS levels
 #   ./bench.sh down                             # tear down containers
 
+if [[ "$(uname -s)" != "Linux" ]]; then
+    echo "error: bench requires Linux (Docker images need Linux ELF binaries)" >&2
+    exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$SCRIPT_DIR"
 
 if [[ "${1:-}" == "down" ]]; then
@@ -19,7 +25,19 @@ if [[ "${1:-}" == "down" ]]; then
     exit 0
 fi
 
-# Pass all flags to compare.sh inside the runner container
+# Stage pre-built binaries for Docker
+BIN_DIR="$REPO_ROOT/target/prod"
+for bin in crabllm crabllm-bench; do
+    if [[ ! -f "$BIN_DIR/$bin" ]]; then
+        echo "error: $BIN_DIR/$bin not found" >&2
+        echo "  run: cargo build --profile prod -p crabllm -p crabllm-bench" >&2
+        exit 1
+    fi
+done
+
+mkdir -p bin
+cp "$BIN_DIR/crabllm" "$BIN_DIR/crabllm-bench" bin/
+
 mkdir -p results
 
 echo "==> Building images..."

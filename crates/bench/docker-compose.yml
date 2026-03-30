@@ -2,8 +2,7 @@ services:
   mock:
     image: crabllm-bench:local
     build:
-      context: ../..
-      dockerfile: crates/bench/Dockerfile
+      context: .
       target: runner
     command: crabllm-bench --port 9999
     healthcheck:
