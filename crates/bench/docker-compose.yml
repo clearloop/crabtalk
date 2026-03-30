@@ -28,7 +28,7 @@ services:
     environment:
       OPENAI_API_KEY: "mock-key"
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8080/v1/models"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/v1/models || exit 1"]
       interval: 2s
       retries: 15
     depends_on:
@@ -36,15 +36,15 @@ services:
         condition: service_healthy
 
   litellm:
-    image: ghcr.io/berriai/litellm
-    command: litellm --config /app/config.yaml --port 4000
+    image: ghcr.io/berriai/litellm:main-stable
+    command: --config /app/config.yaml --port 4000
     volumes:
       - ./config/litellm.yaml:/app/config.yaml:ro
     environment:
       LITELLM_LOG: "ERROR"
       LITELLM_TELEMETRY: "False"
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:4000/health/liveliness"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/health/liveliness || exit 1"]
       interval: 2s
       retries: 30
     depends_on:
