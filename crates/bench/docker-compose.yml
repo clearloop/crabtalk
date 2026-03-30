@@ -1,5 +1,5 @@
 x-gateway-resources: &gw-resources
-  cpus: "2"
+  cpus: 2
   mem_limit: 512m
 
 services:
@@ -10,7 +10,7 @@ services:
       target: runner
     network_mode: host
     command: crabllm-bench --port 9999
-    cpus: "1"
+    cpus: 1
     mem_limit: 256m
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:9999/v1/models"]
@@ -62,7 +62,7 @@ services:
     image: crabllm-bench:local
     network_mode: host
     pid: host
-    cpus: "2"
+    cpus: 2
     mem_limit: 1g
     command: python3 bench.py ${BENCH_ARGS:-}
     volumes:
