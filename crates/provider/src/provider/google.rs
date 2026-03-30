@@ -243,6 +243,17 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
                     parameters: t.function.parameters.clone().map(|mut p| {
                         schema::inline_refs(&mut p);
                         schema::strip_schema_meta(&mut p);
+                        schema::flatten_nullable(&mut p);
+                        schema::strip_fields(
+                            &mut p,
+                            &[
+                                "title",
+                                "default",
+                                "examples",
+                                "$comment",
+                                "additionalProperties",
+                            ],
+                        );
                         p
                     }),
                 })
