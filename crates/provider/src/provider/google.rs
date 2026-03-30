@@ -1,3 +1,4 @@
+use crate::provider::schema;
 use bytes::{Buf, BytesMut};
 use crabllm_core::{
     ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice, Delta,
@@ -239,7 +240,11 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
                 .map(|t| GeminiFunctionDecl {
                     name: t.function.name.clone(),
                     description: t.function.description.clone(),
-                    parameters: t.function.parameters.clone(),
+                    parameters: t.function.parameters.clone().map(|mut p| {
+                        schema::inline_refs(&mut p);
+                        schema::strip_schema_meta(&mut p);
+                        p
+                    }),
                 })
                 .collect(),
         }]
