@@ -1,8 +1,21 @@
 use crate::Provider;
 use crabllm_core::{Error, GatewayConfig, ProviderKind};
+#[cfg(feature = "llamacpp")]
 use crabllm_llamacpp::{self as llamacpp, LlamaCppConfig, LlamaCppServer};
 use rand::Rng;
-use std::{collections::HashMap, path::PathBuf, time::Duration};
+#[cfg(feature = "llamacpp")]
+use std::path::PathBuf;
+use std::{collections::HashMap, time::Duration};
+
+/// Managed server processes spawned by the registry.
+///
+/// When the `llamacpp` feature is enabled this holds the live
+/// `LlamaCppServer` handles — dropping it stops all child processes.
+/// Without the feature it is `()` (zero-cost).
+#[cfg(feature = "llamacpp")]
+pub type ManagedServers = Vec<LlamaCppServer>;
+#[cfg(not(feature = "llamacpp"))]
+pub type ManagedServers = ();
 
 /// A provider entry with its routing weight and retry config.
 #[derive(Debug, Clone)]
@@ -38,52 +51,74 @@ impl ProviderRegistry {
 
     /// Build the registry from gateway config.
     ///
-    /// Returns the registry and a vec of managed llama-server processes.
-    /// The caller must hold the returned `Vec<LlamaCppServer>` alive for
-    /// the lifetime of the gateway — dropping it kills the child processes.
-    pub fn from_config(config: &GatewayConfig) -> Result<(Self, Vec<LlamaCppServer>), Error> {
+    /// Returns the registry and managed server handles. The caller must
+    /// hold the returned [`ManagedServers`] alive for the lifetime of the
+    /// gateway — dropping it kills any child processes.
+    pub fn from_config(config: &GatewayConfig) -> Result<(Self, ManagedServers), Error> {
+        // Reject LlamaCpp providers when the feature is disabled.
+        #[cfg(not(feature = "llamacpp"))]
+        for (name, pc) in &config.providers {
+            if pc.kind == ProviderKind::LlamaCpp {
+                return Err(Error::Config(format!(
+                    "provider '{name}': llamacpp support requires the 'llamacpp' feature"
+                )));
+            }
+        }
+
         // Validate all providers before spawning any llama-server processes.
         // This avoids starting (and then killing) servers when a later
         // config entry has an obvious error like a missing api_key.
         //
         // For LlamaCpp providers, we also resolve the binary path once here
         // so we don't do redundant PATH lookups during spawn.
-        let has_llamacpp = config
-            .providers
-            .values()
-            .any(|c| c.kind == ProviderKind::LlamaCpp);
-        let llamacpp_bin = if has_llamacpp {
-            Some(llamacpp::find_server_binary()?)
-        } else {
-            None
+        #[cfg(feature = "llamacpp")]
+        let llamacpp_bin = {
+            let has_llamacpp = config
+                .providers
+                .values()
+                .any(|c| c.kind == ProviderKind::LlamaCpp);
+            if has_llamacpp {
+                Some(llamacpp::find_server_binary()?)
+            } else {
+                None
+            }
         };
 
         for (provider_name, provider_config) in &config.providers {
+            #[cfg(feature = "llamacpp")]
             if provider_config.kind == ProviderKind::LlamaCpp {
                 validate_llamacpp_config(provider_name, provider_config)?;
-            } else {
-                let p = Provider::from(provider_config);
-                validate_provider(provider_name, provider_config, &p)?;
+                continue;
             }
+
+            let p = Provider::from(provider_config);
+            validate_provider(provider_name, provider_config, &p)?;
         }
 
         let mut providers: HashMap<String, Vec<Deployment>> = HashMap::new();
+        #[cfg(feature = "llamacpp")]
         let mut servers: Vec<LlamaCppServer> = Vec::new();
 
         for (provider_name, provider_config) in &config.providers {
             let provider = if provider_config.kind == ProviderKind::LlamaCpp {
-                let bin = llamacpp_bin.as_ref().expect("validated above");
-                let server = spawn_llamacpp_server(provider_name, provider_config, bin)?;
-                let base_url = server.base_url();
-                servers.push(server);
-                Provider::OpenAiCompat {
-                    base_url,
-                    api_key: String::new(),
+                #[cfg(feature = "llamacpp")]
+                {
+                    let bin = llamacpp_bin.as_ref().expect("validated above");
+                    let server = spawn_llamacpp_server(provider_name, provider_config, bin)?;
+                    let base_url = server.base_url();
+                    servers.push(server);
+                    Provider::OpenAiCompat {
+                        base_url,
+                        api_key: String::new(),
+                    }
+                }
+                #[cfg(not(feature = "llamacpp"))]
+                {
+                    let _ = &provider_name;
+                    unreachable!("llamacpp providers rejected above")
                 }
             } else {
-                let p = Provider::from(provider_config);
-                validate_provider(provider_name, provider_config, &p)?;
-                p
+                Provider::from(provider_config)
             };
 
             let deployment = Deployment {
@@ -108,7 +143,11 @@ impl ProviderRegistry {
         }
 
         let registry = Self::new(providers, config.aliases.clone(), model_providers);
-        Ok((registry, servers))
+
+        #[cfg(feature = "llamacpp")]
+        return Ok((registry, servers));
+        #[cfg(not(feature = "llamacpp"))]
+        Ok((registry, ()))
     }
 
     /// Look up the provider name for a model. O(1) HashMap lookup.
@@ -242,6 +281,7 @@ fn validate_provider(
 }
 
 /// Validate LlamaCpp config without spawning anything.
+#[cfg(feature = "llamacpp")]
 fn validate_llamacpp_config(
     name: &str,
     config: &crabllm_core::ProviderConfig,
@@ -255,6 +295,7 @@ fn validate_llamacpp_config(
 }
 
 /// Spawn a llama-server for a LlamaCpp provider config.
+#[cfg(feature = "llamacpp")]
 fn spawn_llamacpp_server(
     name: &str,
     config: &crabllm_core::ProviderConfig,

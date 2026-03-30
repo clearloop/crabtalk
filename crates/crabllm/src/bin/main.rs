@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use crabllm_core::{Extension, GatewayConfig, Storage};
-use crabllm_provider::ProviderRegistry;
+use crabllm_provider::{ManagedServers, ProviderRegistry};
 use crabllm_proxy::{
     AppState,
     ext::{
@@ -36,6 +36,7 @@ enum Commands {
         bind: Option<String>,
     },
     /// Manage llama.cpp server and models
+    #[cfg(feature = "llamacpp")]
     #[command(name = "llamacpp")]
     LlamaCpp {
         #[command(subcommand)]
@@ -43,6 +44,7 @@ enum Commands {
     },
 }
 
+#[cfg(feature = "llamacpp")]
 #[derive(Subcommand)]
 enum LlamaCppAction {
     /// Download the llama-server binary for this platform
@@ -62,6 +64,7 @@ async fn main() {
     let cli = Cli::parse();
 
     match cli.command {
+        #[cfg(feature = "llamacpp")]
         Some(Commands::LlamaCpp { action }) => run_llamacpp(action),
         Some(Commands::Serve { config, bind }) => serve(config, bind).await,
         // Default: serve with default config path.
@@ -69,6 +72,7 @@ async fn main() {
     }
 }
 
+#[cfg(feature = "llamacpp")]
 fn run_llamacpp(action: LlamaCppAction) {
     match action {
         LlamaCppAction::Download { tag } => match crabllm_llamacpp::download(tag.as_deref()) {
@@ -132,7 +136,7 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
         config.listen = bind;
     }
 
-    let (registry, llama_servers) = match ProviderRegistry::from_config(&config) {
+    let (registry, managed_servers) = match ProviderRegistry::from_config(&config) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("error: failed to build provider registry: {e}");
@@ -161,7 +165,7 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
                     std::process::exit(1);
                 }
             };
-            run(config, registry, storage, llama_servers).await;
+            run(config, registry, storage, managed_servers).await;
         }
         #[cfg(not(feature = "storage-redis"))]
         "redis" => {
@@ -183,7 +187,7 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
                     std::process::exit(1);
                 }
             };
-            run(config, registry, storage, llama_servers).await;
+            run(config, registry, storage, managed_servers).await;
         }
         #[cfg(not(feature = "storage-sqlite"))]
         "sqlite" => {
@@ -192,7 +196,7 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
         }
         _ => {
             let storage = Arc::new(MemoryStorage::new());
-            run(config, registry, storage, llama_servers).await;
+            run(config, registry, storage, managed_servers).await;
         }
     }
 }
@@ -201,7 +205,7 @@ async fn run<S: Storage + 'static>(
     config: GatewayConfig,
     registry: ProviderRegistry,
     storage: Arc<S>,
-    mut llama_servers: Vec<crabllm_provider::LlamaCppServer>,
+    _managed_servers: ManagedServers,
 ) {
     let (extensions, mut admin_routes) =
         match build_extensions(&config, storage.clone() as Arc<dyn Storage>) {
@@ -281,12 +285,12 @@ async fn run<S: Storage + 'static>(
         eprintln!("error: server failed: {e}");
     }
 
-    // Explicitly stop llama-server children before exit.
-    // This runs after graceful shutdown completes, ensuring destructors
-    // fire rather than relying on process::exit which skips them.
-    for server in &mut llama_servers {
-        server.stop();
-    }
+    // Stop managed llama-server children (if any) before exit.
+    // NOTE: process::exit in the drain timeout handler can still
+    // skip destructors — this only helps when shutdown completes
+    // before the timeout fires.
+    #[cfg(feature = "llamacpp")]
+    drop(_managed_servers);
 }
 
 async fn shutdown_signal(drain_timeout: Duration) {
