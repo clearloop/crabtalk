@@ -14,7 +14,7 @@ bench-image: bench-runner
 bench: bench-image
 	cd crates/bench && mkdir -p results && \
 	BENCH_ARGS="$(ARGS)" docker compose up -d && \
-	docker compose wait runner ; \
+	docker compose logs -f runner ; \
 	docker compose down
 
 # Generate charts from results

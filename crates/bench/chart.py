@@ -57,9 +57,9 @@ all_scenarios = sorted({s for gw in data.values() for s in gw})
 
 COLORS_ANSI = {
     "direct": "\033[90m",
-    "crabllm": "\033[91m",
-    "bifrost": "\033[94m",
-    "litellm": "\033[92m",
+    "crabllm": "\033[38;5;208m",
+    "bifrost": "\033[38;5;39m",
+    "litellm": "\033[38;5;25m",
 }
 RESET = "\033[0m"
 BOLD = "\033[1m"
@@ -188,9 +188,9 @@ os.makedirs(CHARTS_DIR, exist_ok=True)
 
 COLORS_HEX = {
     "direct": "#999999",
-    "crabllm": "#e74c3c",
-    "bifrost": "#3498db",
-    "litellm": "#2ecc71",
+    "crabllm": "#dea584",
+    "bifrost": "#00ADD8",
+    "litellm": "#3178C6",
 }
 
 
