@@ -11,7 +11,7 @@ categories = ["web-programming::http-client", "network-programming"]
 
 [features]
 native-tls = ["reqwest/native-tls"]
-rustls-tls = ["reqwest/rustls-tls"]
+rustls-tls = ["reqwest/rustls"]
 provider-bedrock = ["hmac", "sha2"]
 
 [dependencies]
