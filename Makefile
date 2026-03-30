@@ -1,4 +1,4 @@
-.PHONY: bench-runner bench-image bench
+.PHONY: bench-runner bench-image bench bench-chart
 
 # Base image: debian-slim + oha + curl + jq
 bench-runner:
@@ -15,3 +15,7 @@ bench: bench-image
 	cd crates/bench && mkdir -p results && \
 	BENCH_ARGS="$(ARGS)" docker compose up --abort-on-container-exit ; \
 	docker compose down
+
+# Generate charts from results
+bench-chart:
+	cd crates/bench && python3 chart.py
