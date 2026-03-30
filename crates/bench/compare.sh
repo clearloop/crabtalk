@@ -28,15 +28,15 @@ mkdir -p "$OUTDIR"
 # ── Gateway definitions ──
 
 declare -A GW_URLS=(
-    [direct]="http://mock:9999"
-    [crabllm]="http://crabllm:8080"
-    [litellm]="http://litellm:4000"
+    [direct]="http://localhost:9999"
+    [crabllm]="http://localhost:8080"
+    [litellm]="http://localhost:4000"
 )
 
 declare -A GW_HEALTH=(
-    [direct]="http://mock:9999/v1/models"
-    [crabllm]="http://crabllm:8080/health"
-    [litellm]="http://litellm:4000/health/liveliness"
+    [direct]="http://localhost:9999/v1/models"
+    [crabllm]="http://localhost:8080/health"
+    [litellm]="http://localhost:4000/health/liveliness"
 )
 
 GW_LIST=(direct crabllm litellm)
