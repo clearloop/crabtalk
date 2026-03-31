@@ -27,10 +27,10 @@ from urllib.request import Request, urlopen
 # ── Gateway definitions ──────────────────────────────────────────────────────
 
 GATEWAYS = [
-    {"name": "direct",  "url": "http://localhost:9999", "health": "http://localhost:9999/v1/models",           "proc": "crabllm-bench"},
-    {"name": "crabllm", "url": "http://localhost:6666", "health": "http://localhost:6666/health",              "proc": "crabllm"},
-    {"name": "bifrost", "url": "http://localhost:6668", "health": "http://localhost:6668/",                     "proc": "bifrost"},
-    {"name": "litellm", "url": "http://localhost:4000", "health": "http://localhost:4000/health/liveliness",   "proc": "litellm"},
+    {"name": "direct",  "url": "http://127.0.0.1:9999", "health": "http://127.0.0.1:9999/v1/models",           "proc": "crabllm-bench"},
+    {"name": "crabllm", "url": "http://127.0.0.1:6666", "health": "http://127.0.0.1:6666/health",              "proc": "crabllm"},
+    {"name": "bifrost", "url": "http://127.0.0.1:6668", "health": "http://127.0.0.1:6668/",                     "proc": "bifrost"},
+    {"name": "litellm", "url": "http://127.0.0.1:4000", "health": "http://127.0.0.1:4000/health/liveliness",   "proc": "litellm"},
 ]
 
 # ── Request bodies ───────────────────────────────────────────────────────────
@@ -61,7 +61,9 @@ DEVNULL = subprocess.DEVNULL
 
 def adapt_body(gw_name, body):
     if gw_name == "bifrost":
-        return body.replace('"model":"', '"model":"openai/')
+        obj = json.loads(body)
+        obj["model"] = f"openai/{obj['model']}"
+        return json.dumps(obj, **_J)
     return body
 
 
