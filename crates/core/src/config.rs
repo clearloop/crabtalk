@@ -51,11 +51,7 @@ pub struct GatewayConfig {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ProviderConfig {
     /// Provider kind determines the dispatch path.
-    #[serde(
-        default,
-        alias = "standard",
-        skip_serializing_if = "ProviderKind::is_default"
-    )]
+    #[serde(default, skip_serializing_if = "ProviderKind::is_default")]
     pub kind: ProviderKind,
     /// API key (supports `${ENV_VAR}` interpolation).
     #[serde(default, skip_serializing_if = "Option::is_none")]
