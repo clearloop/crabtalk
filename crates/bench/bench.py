@@ -390,6 +390,13 @@ def load_results(outdir):
         if not p.get("p50"):
             continue
 
+        # oha's successRate counts any HTTP response as success (including 5xx).
+        # Compute real success from status code distribution.
+        dist = j.get("statusCodeDistribution", {})
+        total = sum(dist.values()) if dist else 0
+        ok = sum(v for k, v in dist.items() if k.startswith("2")) if dist else 0
+        success = ok / total if total > 0 else 0
+
         mem_kb = 0
         mem_path = path.replace(".json", ".mem.json")
         try:
@@ -403,7 +410,7 @@ def load_results(outdir):
             "p90": p["p90"] * 1000,
             "p99": p["p99"] * 1000,
             "rps": s.get("requestsPerSec", 0),
-            "success": s.get("successRate", 0),
+            "success": success,
             "memory_mb": mem_kb / 1024,
         }
     return data
@@ -596,9 +603,9 @@ def render_markdown(outdir, path):
             cells = []
             for gw in gateways:
                 e = data.get(gw, {}).get(scenario, {}).get(level)
-                if e:
+                if e and e["success"] > 0:
                     cells.append(f"{e['p50']:.2f} / {e['p99']:.2f}")
-                elif (gw, scenario, level) in tested:
+                elif e or (gw, scenario, level) in tested:
                     cells.append("down")
                 else:
                     cells.append("—")

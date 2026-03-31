@@ -12,6 +12,10 @@
       ],
       "network_config": {
         "base_url": "http://127.0.0.1:9999"
+      },
+      "concurrency_and_buffer_size": {
+        "concurrency": 5000,
+        "buffer_size": 7500
       }
     }
   }
