@@ -396,6 +396,8 @@ def load_results(outdir):
         total = sum(dist.values()) if dist else 0
         ok = sum(v for k, v in dist.items() if k.startswith("2")) if dist else 0
         success = ok / total if total > 0 else 0
+        if success == 0:
+            continue  # all requests failed — latency is just error response time
 
         mem_kb = 0
         mem_path = path.replace(".json", ".mem.json")
@@ -603,9 +605,9 @@ def render_markdown(outdir, path):
             cells = []
             for gw in gateways:
                 e = data.get(gw, {}).get(scenario, {}).get(level)
-                if e and e["success"] > 0:
+                if e:
                     cells.append(f"{e['p50']:.2f} / {e['p99']:.2f}")
-                elif e or (gw, scenario, level) in tested:
+                elif (gw, scenario, level) in tested:
                     cells.append("down")
                 else:
                     cells.append("—")
