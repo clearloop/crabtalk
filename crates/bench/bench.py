@@ -28,8 +28,8 @@ from urllib.request import Request, urlopen
 
 GATEWAYS = [
     {"name": "direct",  "url": "http://127.0.0.1:9999", "health": "http://127.0.0.1:9999/v1/models",           "proc": "crabllm-bench"},
-    {"name": "crabllm", "url": "http://127.0.0.1:6666", "health": "http://127.0.0.1:6666/health",              "proc": "crabllm"},
-    {"name": "bifrost", "url": "http://127.0.0.1:6668", "health": "http://127.0.0.1:6668/",                     "proc": "bifrost"},
+    {"name": "crabllm", "url": "http://127.0.0.1:6666", "health": "http://127.0.0.1:6666/health",              "proc": "crabllm serve"},
+    {"name": "bifrost", "url": "http://127.0.0.1:6668", "health": "http://127.0.0.1:6668/",                     "proc": "/app/main"},
     {"name": "litellm", "url": "http://127.0.0.1:4000", "health": "http://127.0.0.1:4000/health/liveliness",   "proc": "litellm"},
 ]
 
@@ -72,13 +72,13 @@ def sample_memory_kb(proc_name):
         return 0
     try:
         out = subprocess.run(
-            ["ps", "-eo", "comm,rss", "--no-headers"],
+            ["ps", "-eo", "rss,args", "--no-headers"],
             capture_output=True, text=True, timeout=5,
         ).stdout
         for line in out.splitlines():
-            parts = line.split()
-            if len(parts) >= 2 and proc_name in parts[0]:
-                return int(parts[1])
+            parts = line.split(None, 1)
+            if len(parts) >= 2 and proc_name in parts[1]:
+                return int(parts[0])
     except (subprocess.TimeoutExpired, ValueError, OSError):
         pass
     return 0
@@ -130,12 +130,25 @@ def _check_health(url, timeout=5):
         return False
 
 
+def _readiness_check(gw, timeout=5):
+    """Send a test request through the gateway to verify upstream connectivity."""
+    url = f"{gw['url']}/v1/chat/completions"
+    body = adapt_body(gw["name"], CHAT_BODY).encode()
+    try:
+        req = Request(url, data=body, method="POST",
+                      headers={"Content-Type": "application/json"})
+        with urlopen(req, timeout=timeout):
+            return True
+    except (URLError, OSError, TimeoutError):
+        return False
+
+
 def _poll_gateway(gw, timeout):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        if _check_health(gw["health"]):
+        if _check_health(gw["health"]) and _readiness_check(gw):
             return gw
-        time.sleep(0.1)
+        time.sleep(1)
     return None
 
 
@@ -162,7 +175,9 @@ def wait_for_gateways(gateways, timeout=60):
 
 def run_scenario(name, endpoint, body, rps_levels, active_gws, duration, outdir):
     print(f"== Scenario: {name} ==")
-    for gw in active_gws:
+    for i, gw in enumerate(active_gws):
+        if i > 0:
+            time.sleep(5)  # drain TIME_WAIT sockets between gateways
         gw_body = adapt_body(gw["name"], body)
         mem = fmt_mb(sample_memory_kb(gw["proc"]))
         print(f"  [{gw['name']}] warming up... (mem: {mem})")
@@ -201,7 +216,9 @@ def run_concurrent(active_gws, duration, outdir):
     print()
     for conc in [100, 500, 1000]:
         print(f"== concurrent-streams-{conc} ==")
-        for gw in active_gws:
+        for i, gw in enumerate(active_gws):
+            if i > 0:
+                time.sleep(5)
             gw_body = adapt_body(gw["name"], STREAM_BODY)
             warmup(gw["url"], "/v1/chat/completions", gw_body)
             outfile = os.path.join(outdir, f"{gw['name']}-concurrent-{conc}.json")
