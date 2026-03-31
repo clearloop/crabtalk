@@ -1,11 +1,14 @@
 TARGET := x86_64-unknown-linux-gnu
-LINUX_AMD64_ENV := CC=x86_64-linux-gnu-gcc AR=x86_64-linux-gnu-ar
+
+ifneq ($(shell uname -s)-$(shell uname -m),Linux-x86_64)
+CROSS_ENV := CC=x86_64-linux-gnu-gcc AR=x86_64-linux-gnu-ar
+endif
 
 .PHONY: prod docker bench-runner bench-image bench bench-chart
 
 # Build crabllm prod binary for linux-amd64
 prod:
-	$(LINUX_AMD64_ENV) cargo build --profile prod -p crabllm --target $(TARGET)
+	$(CROSS_ENV) cargo build --profile prod -p crabllm --target $(TARGET)
 	mkdir -p dist
 	cp target/$(TARGET)/prod/crabllm dist/crabllm
 
