@@ -4,7 +4,7 @@ ifneq ($(shell uname -s)-$(shell uname -m),Linux-x86_64)
 CROSS_ENV := CC=x86_64-linux-gnu-gcc AR=x86_64-linux-gnu-ar
 endif
 
-.PHONY: prod image bench-runner bench-image bench bench-debug bench-chart summary
+.PHONY: prod image bench-runner bench-image bench bench-debug bench-chart bench-json summary
 
 # Build crabllm prod binary for linux-amd64
 prod:
@@ -50,6 +50,10 @@ bench-debug: bench-image
 # Generate charts from results
 bench-chart:
 	cd crates/bench && python3 bench.py --chart-only --output results
+
+# Dump summary JSON to stdout
+bench-json:
+	cd crates/bench && python3 bench.py --json --output results
 
 # Generate benchmark page for docs
 summary:

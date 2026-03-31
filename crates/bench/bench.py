@@ -641,19 +641,28 @@ def main():
     parser.add_argument("--chart-only", action="store_true", help="render charts from existing results (no benchmark)")
     parser.add_argument("--png", action="store_true", help="export PNG charts (requires matplotlib)")
     parser.add_argument("--markdown", metavar="PATH", help="render markdown summary to file")
+    parser.add_argument("--json", action="store_true", help="dump summary JSON to stdout")
 
     args = parser.parse_args()
     outdir = args.output
     rps_levels = [int(x) for x in args.rps.split()]
 
     # Render-only modes: no benchmark run
-    if args.chart_only or (args.markdown and not args.chart):
+    if args.chart_only or args.json or (args.markdown and not args.chart):
         if args.chart_only:
             render_terminal_charts(outdir)
         if args.png:
             render_png_charts(outdir)
         if args.markdown:
             render_markdown(outdir, args.markdown)
+        if args.json:
+            data = load_results(outdir)
+            if data:
+                out = {}
+                for gw in [g["name"] for g in GATEWAYS if g["name"] in data]:
+                    out[gw] = {sc: {l: data[gw][sc][l] for l in sorted(data[gw][sc])} for sc in sorted(data[gw])}
+                json.dump(out, sys.stdout, indent=2)
+                print()
         return
 
     # Full benchmark run
