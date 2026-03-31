@@ -1,4 +1,16 @@
-.PHONY: bench-runner bench-image bench bench-chart
+TARGET := x86_64-unknown-linux-gnu
+
+.PHONY: prod docker bench-runner bench-image bench bench-chart
+
+# Build crabllm prod binary for linux-amd64
+prod:
+	cargo build --profile prod -p crabllm --target $(TARGET)
+	mkdir -p dist
+	cp target/$(TARGET)/prod/crabllm dist/crabllm
+
+# Build Docker image from pre-built binary
+docker: prod
+	docker build -t crabllm:local .
 
 # Base image: debian-slim + oha + curl + jq
 bench-runner:
