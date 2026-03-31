@@ -4,7 +4,7 @@ ifneq ($(shell uname -s)-$(shell uname -m),Linux-x86_64)
 CROSS_ENV := CC=x86_64-linux-gnu-gcc AR=x86_64-linux-gnu-ar
 endif
 
-.PHONY: prod docker bench-runner bench-image bench bench-chart
+.PHONY: prod image bench-runner bench-image bench bench-chart
 
 # Build crabllm prod binary for linux-amd64
 prod:
@@ -12,8 +12,8 @@ prod:
 	mkdir -p dist
 	cp target/$(TARGET)/prod/crabllm dist/crabllm
 
-# Build Docker image from pre-built binary
-docker: prod
+# Build prod binary and pack Docker image
+image: prod
 	docker build -t crabllm:local .
 
 # Base image: debian-slim + oha + curl + jq
