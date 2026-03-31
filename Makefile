@@ -4,7 +4,7 @@ ifneq ($(shell uname -s)-$(shell uname -m),Linux-x86_64)
 CROSS_ENV := CC=x86_64-linux-gnu-gcc AR=x86_64-linux-gnu-ar
 endif
 
-.PHONY: prod image bench-runner bench-image bench bench-chart summary
+.PHONY: prod image bench-runner bench-image bench bench-debug bench-chart summary
 
 # Build crabllm prod binary for linux-amd64
 prod:
@@ -33,6 +33,18 @@ bench: bench-image
 	docker compose up -d mock crabllm bifrost litellm && \
 	BENCH_ARGS="$(ARGS)" docker compose up runner ; \
 	cp results/summary.json summary.json 2>/dev/null ; \
+	docker compose down
+
+# Quick single-gateway debug run (default: bifrost, override with GW=litellm)
+bench-debug: bench-image
+	cd crates/bench && mkdir -p results && \
+	docker compose up -d mock $(or $(GW),bifrost) && \
+	docker run --rm --network host --pid host \
+	  -e PYTHONUNBUFFERED=1 \
+	  -v $$PWD/bench.py:/app/bench.py:ro \
+	  -v $$PWD/results:/results \
+	  crabllm-bench:local \
+	  python3 bench.py --group overhead --duration 5 --rps "100 500" --chart $(ARGS) ; \
 	docker compose down
 
 # Generate charts from results
