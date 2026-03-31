@@ -110,8 +110,8 @@ fn default_shutdown_timeout() -> u64 {
 #[serde(rename_all = "snake_case")]
 pub enum ProviderKind {
     #[default]
-    #[serde(alias = "openai")]
-    OpenaiCompat,
+    #[serde(alias = "openai_compat")]
+    Openai,
     Anthropic,
     Google,
     Bedrock,
@@ -122,9 +122,9 @@ pub enum ProviderKind {
 }
 
 impl ProviderKind {
-    /// Returns true if this is the default variant (OpenaiCompat).
+    /// Returns true if this is the default variant (Openai).
     pub fn is_default(&self) -> bool {
-        *self == Self::OpenaiCompat
+        *self == Self::Openai
     }
 }
 
