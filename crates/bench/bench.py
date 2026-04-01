@@ -436,24 +436,25 @@ def chart_latency(data, gateways, scenario):
 
 
 def chart_overhead(data, gateways, scenarios):
-    _header("Gateway Overhead Summary (P50)")
-    for scenario in scenarios:
-        common = None
-        for gw in gateways:
-            levels = set(data[gw].get(scenario, {}).keys())
-            if levels:
-                common = levels if common is None else common & levels
-        if not common:
-            continue
-        level = max(common)
-        entries = [(gw, data[gw][scenario][level]) for gw in gateways if level in data[gw].get(scenario, {})]
-        if not entries:
-            continue
-        max_val = max(e["p50"] for _, e in entries)
-        print(f"\n  {DIM}{scenario} @ {level} RPS{RESET}")
-        for gw, e in entries:
-            c = _ansi(gw)
-            print(f"    {c}{gw:>8}{RESET} {c}{_bar(e['p50'], max_val)}{RESET} {e['p50']:.2f}ms")
+    for pctl in ("p50", "p99"):
+        _header(f"Gateway Overhead Summary ({pctl.upper()})")
+        for scenario in scenarios:
+            common = None
+            for gw in gateways:
+                levels = set(data[gw].get(scenario, {}).keys())
+                if levels:
+                    common = levels if common is None else common & levels
+            if not common:
+                continue
+            level = max(common)
+            entries = [(gw, data[gw][scenario][level]) for gw in gateways if level in data[gw].get(scenario, {})]
+            if not entries:
+                continue
+            max_val = max(e[pctl] for _, e in entries)
+            print(f"\n  {DIM}{scenario} @ {level} RPS{RESET}")
+            for gw, e in entries:
+                c = _ansi(gw)
+                print(f"    {c}{gw:>8}{RESET} {c}{_bar(e[pctl], max_val)}{RESET} {e[pctl]:.2f}ms")
 
 
 def chart_memory(data, gateways, scenarios):
