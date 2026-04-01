@@ -65,8 +65,18 @@ fn record_tokens(ctx: &RequestContext, prompt: u32, completion: u32) {
 pub async fn chat_completions<S: Storage + 'static>(
     State(state): State<AppState<S>>,
     Extension(key_name): Extension<KeyName>,
-    Json(mut request): Json<ChatCompletionRequest>,
+    raw_body: axum::body::Bytes,
 ) -> Response {
+    let mut request: ChatCompletionRequest = match serde_json::from_slice(&raw_body) {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ApiError::new(e.to_string(), "invalid_request_error")),
+            )
+                .into_response();
+        }
+    };
     let model = state.registry.resolve(&request.model).to_string();
     let deployments = match state.registry.dispatch_list(&model) {
         Some(list) => list,
@@ -204,10 +214,37 @@ pub async fn chat_completions<S: Storage + 'static>(
         }
         record_duration(&ctx, "5xx");
         error_response(e)
+    } else if state.extensions.is_empty() {
+        // Fast path: no extensions — forward raw bytes, skip re-serialization.
+        let mut last_err = None;
+        for deployment in &deployments {
+            match try_chat_raw_with_retries(deployment, &state.client, &request, raw_body.clone())
+                .await
+            {
+                Ok(resp_bytes) => {
+                    // Peek usage from raw response for metrics.
+                    if let Ok(peek) = serde_json::from_slice::<UsagePeek>(&resp_bytes)
+                        && let Some(usage) = peek.usage
+                    {
+                        record_tokens(&ctx, usage.prompt_tokens, usage.completion_tokens);
+                    }
+                    record_duration(&ctx, "2xx");
+                    return (
+                        [(axum::http::header::CONTENT_TYPE, "application/json")],
+                        resp_bytes,
+                    )
+                        .into_response();
+                }
+                Err(e) => last_err = Some(e),
+            }
+        }
+
+        let e = last_err
+            .unwrap_or_else(|| crabllm_core::Error::Internal("no providers available".to_string()));
+        record_duration(&ctx, error_status(&e));
+        error_response(e)
     } else {
-        // Non-streaming: check cache first.
-        // Cache hits skip duration recording — sub-millisecond responses
-        // would skew the histogram, which should reflect provider latency.
+        // Slow path: extensions need typed request/response.
         for ext in state.extensions.iter() {
             if let Some(cached) = ext.on_cache_lookup(&request).await {
                 return Json(cached).into_response();
@@ -642,6 +679,62 @@ where
 fn jittered(backoff: Duration) -> Duration {
     let lo = backoff / 2;
     rand::rng().random_range(lo..=backoff)
+}
+
+/// Lightweight struct to extract usage from raw response bytes.
+#[derive(serde::Deserialize)]
+struct UsagePeek {
+    usage: Option<crabllm_core::Usage>,
+}
+
+/// Retry a raw (byte-forwarding) chat completion on a single deployment.
+async fn try_chat_raw_with_retries(
+    deployment: &Deployment,
+    client: &reqwest::Client,
+    request: &ChatCompletionRequest,
+    raw_body: bytes::Bytes,
+) -> Result<bytes::Bytes, crabllm_core::Error> {
+    let mut last_err;
+    match with_timeout(
+        deployment.timeout,
+        deployment
+            .provider
+            .chat_completion_raw(client, request, raw_body.clone()),
+    )
+    .await
+    {
+        Ok(resp) => return Ok(resp),
+        Err(e) => {
+            if !e.is_transient() || deployment.max_retries == 0 {
+                return Err(e);
+            }
+            last_err = e;
+        }
+    }
+
+    let mut backoff = Duration::from_millis(100);
+    for _ in 0..deployment.max_retries {
+        tokio::time::sleep(jittered(backoff)).await;
+        backoff *= 2;
+        match with_timeout(
+            deployment.timeout,
+            deployment
+                .provider
+                .chat_completion_raw(client, request, raw_body.clone()),
+        )
+        .await
+        {
+            Ok(resp) => return Ok(resp),
+            Err(e) => {
+                if !e.is_transient() {
+                    return Err(e);
+                }
+                last_err = e;
+            }
+        }
+    }
+
+    Err(last_err)
 }
 
 /// Retry a non-streaming chat completion on a single deployment.
