@@ -128,7 +128,7 @@ impl Provider {
     pub async fn chat_completion_raw(
         &self,
         client: &reqwest::Client,
-        request: &ChatCompletionRequest,
+        model: &str,
         raw_body: Bytes,
     ) -> Result<Bytes, Error> {
         match self {
@@ -145,14 +145,16 @@ impl Provider {
                     base_url,
                     api_key,
                     api_version,
-                    &request.model,
+                    model,
                     raw_body,
                 )
                 .await
             }
             // Non-OpenAI providers translate formats — must deser/reser.
             other => {
-                let resp = other.chat_completion(client, request).await?;
+                let request: ChatCompletionRequest = serde_json::from_slice(&raw_body)
+                    .map_err(|e| Error::Internal(e.to_string()))?;
+                let resp = other.chat_completion(client, &request).await?;
                 serde_json::to_vec(&resp)
                     .map(Bytes::from)
                     .map_err(|e| Error::Internal(e.to_string()))
