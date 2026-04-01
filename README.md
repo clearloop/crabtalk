@@ -2,7 +2,7 @@
 
 [![crates.io][crabllm-badge]][crabllm-crate]
 
-High-performance LLM API gateway in Rust, used by [OpenWalrus][openwalrus].
+High-performance LLM API gateway in Rust, built by [crabtalk][crabtalk].
 
 ## What It Does
 
@@ -116,7 +116,7 @@ MIT OR Apache-2.0
 
 [crabllm-badge]: https://img.shields.io/crates/v/crabllm.svg
 [crabllm-crate]: https://crates.io/crates/crabllm
-[openwalrus]: https://openwalrus.xyz
+[crabtalk]: https://crabtalk.xyz
 [litellm]: https://github.com/BerriAI/litellm
 [docs]: https://clearloop.github.io/crabllm
 [providers]: https://clearloop.github.io/crabllm/providers/overview.html
