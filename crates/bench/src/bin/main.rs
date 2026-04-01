@@ -78,7 +78,7 @@ async fn main() {
         "mock backend listening on {addr} (chunks={}, delay={}ms, error_rate={})",
         cli.chunks, cli.delay, cli.error_rate
     );
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(NoDelayListener(listener), app).await.unwrap();
 }
 
 async fn chat_completions(
@@ -127,6 +127,7 @@ async fn chat_completions(
                 }],
                 usage: None,
                 system_fingerprint: None,
+                raw_json: None,
             };
             let json = serde_json::to_string(&chunk).unwrap();
             let event = Ok::<_, std::convert::Infallible>(Event::default().data(json));
@@ -221,6 +222,29 @@ fn canned_embed_response() -> EmbeddingResponse {
             prompt_tokens: 5,
             total_tokens: 5,
         },
+    }
+}
+
+struct NoDelayListener(tokio::net::TcpListener);
+
+impl axum::serve::Listener for NoDelayListener {
+    type Io = tokio::net::TcpStream;
+    type Addr = std::net::SocketAddr;
+
+    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+        loop {
+            match self.0.accept().await {
+                Ok((stream, addr)) => {
+                    let _ = stream.set_nodelay(true);
+                    return (stream, addr);
+                }
+                Err(_) => continue,
+            }
+        }
+    }
+
+    fn local_addr(&self) -> std::io::Result<Self::Addr> {
+        self.0.local_addr()
     }
 }
 

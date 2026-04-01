@@ -333,7 +333,10 @@ async fn run<S: Storage + 'static>(
 
     let state = AppState {
         registry,
-        client: reqwest::Client::new(),
+        client: reqwest::Client::builder()
+            .tcp_nodelay(true)
+            .build()
+            .expect("failed to build HTTP client"),
         config,
         extensions: Arc::new(extensions),
         storage,
@@ -353,8 +356,8 @@ async fn run<S: Storage + 'static>(
         "crabllm listening on {addr} ({model_count} models, {provider_count} providers, {ext_count} extensions)"
     );
 
-    let server =
-        axum::serve(listener, app).with_graceful_shutdown(shutdown_signal(shutdown_timeout));
+    let server = axum::serve(NoDelayListener(listener), app)
+        .with_graceful_shutdown(shutdown_signal(shutdown_timeout));
     if let Err(e) = server.await {
         eprintln!("error: server failed: {e}");
     }
@@ -387,6 +390,34 @@ async fn shutdown_signal(drain_timeout: Duration) {
         eprintln!("drain timeout exceeded, forcing exit");
         std::process::exit(0);
     });
+}
+
+/// TCP listener that sets TCP_NODELAY on every accepted connection.
+///
+/// Without this, Nagle's algorithm buffers small SSE writes and waits for
+/// ACKs (~40 ms delayed-ACK window), turning sub-ms streaming overhead into
+/// ~44 ms per request and holding connections open far longer than necessary.
+struct NoDelayListener(tokio::net::TcpListener);
+
+impl axum::serve::Listener for NoDelayListener {
+    type Io = tokio::net::TcpStream;
+    type Addr = std::net::SocketAddr;
+
+    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+        loop {
+            match self.0.accept().await {
+                Ok((stream, addr)) => {
+                    let _ = stream.set_nodelay(true);
+                    return (stream, addr);
+                }
+                Err(_) => continue,
+            }
+        }
+    }
+
+    fn local_addr(&self) -> std::io::Result<Self::Addr> {
+        self.0.local_addr()
+    }
 }
 
 type Extensions = (Vec<Box<dyn Extension>>, Vec<axum::Router>);
