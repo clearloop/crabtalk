@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 
 const DEFAULT_MAX_TOKENS: u32 = 4096;
 const BASE_URL: &str = "https://api.anthropic.com/v1";
+const OAUTH_TOKEN_PREFIX: &str = "sk-ant-oat";
+const OAUTH_BETA: &str = "oauth-2025-04-20";
 
 // ── Anthropic-native request types ──
 
@@ -485,13 +487,13 @@ pub fn not_implemented(name: &str) -> Error {
 // ── Auth ──
 
 fn is_oauth_token(api_key: &str) -> bool {
-    api_key.starts_with("sk-ant-oat")
+    api_key.starts_with(OAUTH_TOKEN_PREFIX)
 }
 
 fn apply_auth(req: reqwest::RequestBuilder, api_key: &str) -> reqwest::RequestBuilder {
     if is_oauth_token(api_key) {
         req.bearer_auth(api_key)
-            .header("anthropic-beta", "oauth-2025-04-20")
+            .header("anthropic-beta", OAUTH_BETA)
     } else {
         req.header("x-api-key", api_key)
     }
