@@ -2,7 +2,7 @@
 
 [![crates.io][crabllm-badge]][crabllm-crate]
 
-High-performance LLM API gateway in Rust, used by [OpenWalrus][openwalrus].
+High-performance LLM API gateway in Rust, built by [crabtalk][crabtalk].
 
 ## What It Does
 
@@ -67,20 +67,31 @@ curl http://localhost:8080/v1/chat/completions \
 ## Benchmarks
 
 Gateway overhead measured against a mock LLM server with instant responses.
-See [full results][benchmarks] for streaming, embeddings, and memory.
+Numbers show proxy cost only (gateway latency minus direct baseline).
+See [full results][benchmarks] for all scenarios and memory usage.
 
-**Chat completions P50 (ms) — lower is better:**
+**Streaming P50 overhead (ms) — the metric that matters for LLMs:**
 
-| RPS | direct | crabllm | [bifrost] | [litellm] |
-|----:|-------:|--------:|----------:|----------:|
-| 500 | 0.28 | 0.66 | 0.36 | 168.79 |
-| 1000 | 0.15 | 0.44 | 0.27 | 172.00 |
-| 5000 | 0.13 | 0.26 | 0.26 | 159.86 |
+| RPS | crabllm | [bifrost] | [litellm] |
+|----:|--------:|----------:|----------:|
+| 500 | +0.02 | +0.16 | +593.20 |
+| 1000 | +0.09 | +0.18 | +596.90 |
+| 5000 | +0.23 | +0.47 | +593.85 |
+
+**Chat completions P50 overhead (ms):**
+
+| RPS | crabllm | [bifrost] | [litellm] |
+|----:|--------:|----------:|----------:|
+| 500 | +0.41 | +0.07 | +151.42 |
+| 1000 | +0.30 | +0.10 | +160.12 |
+| 5000 | +0.16 | +0.14 | +159.68 |
+
+**Peak memory:** crabllm 37MB · bifrost 169MB · litellm 541MB
 
 ```bash
 # requires linux + docker
 make bench                         # full competitive benchmark
-make bench-debug                   # quick bifrost-only debug run
+make bench-debug GW=crabllm        # quick single-gateway debug run
 make bench-chart                   # render terminal charts from results
 make bench-json                    # dump summary JSON to stdout
 make summary                       # generate docs/src/benchmarks.md
@@ -105,7 +116,7 @@ MIT OR Apache-2.0
 
 [crabllm-badge]: https://img.shields.io/crates/v/crabllm.svg
 [crabllm-crate]: https://crates.io/crates/crabllm
-[openwalrus]: https://openwalrus.xyz
+[crabtalk]: https://crabtalk.xyz
 [litellm]: https://github.com/BerriAI/litellm
 [docs]: https://clearloop.github.io/crabllm
 [providers]: https://clearloop.github.io/crabllm/providers/overview.html

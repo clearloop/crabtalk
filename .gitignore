@@ -7,3 +7,4 @@ results
 # local files
 *.local.md
 *.local.json
+crates/bench/summary.json
