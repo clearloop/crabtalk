@@ -874,6 +874,8 @@ fn anthropic_sse_stream(
 }
 
 /// Collect a streaming response into a single [`ChatCompletionResponse`].
+///
+/// Assumes at least one chunk (Anthropic always sends `message_start`).
 async fn accumulate_stream(
     stream: impl Stream<Item = Result<ChatCompletionChunk, Error>>,
 ) -> Result<ChatCompletionResponse, Error> {
