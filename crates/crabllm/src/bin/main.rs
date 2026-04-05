@@ -42,18 +42,6 @@ enum Commands {
         #[command(subcommand)]
         action: LlamaCppAction,
     },
-    /// Pull a model from the Ollama registry
-    #[cfg(feature = "llamacpp")]
-    Pull {
-        /// Model name (e.g. llama3.2:3b)
-        model: String,
-    },
-    /// List available tags for a model on the Ollama registry
-    #[cfg(feature = "llamacpp")]
-    Tags {
-        /// Model name (e.g. llama3.2)
-        model: String,
-    },
 }
 
 #[cfg(feature = "llamacpp")]
@@ -78,10 +66,6 @@ async fn main() {
     match cli.command {
         #[cfg(feature = "llamacpp")]
         Some(Commands::LlamaCpp { action }) => run_llamacpp(action),
-        #[cfg(feature = "llamacpp")]
-        Some(Commands::Pull { model }) => run_pull(&model),
-        #[cfg(feature = "llamacpp")]
-        Some(Commands::Tags { model }) => run_tags(&model),
         Some(Commands::Serve { config, bind }) => serve(config, bind).await,
         // Default: serve with default config path.
         None => serve(PathBuf::from("crabllm.toml"), None).await,
@@ -139,110 +123,71 @@ fn run_llamacpp(action: LlamaCppAction) {
     }
 }
 
-#[cfg(feature = "llamacpp")]
-fn run_pull(model: &str) {
-    use crabllm_llamacpp::registry;
-
-    let cache_dir = match registry::default_cache_dir() {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("error: {e}");
-            std::process::exit(1);
-        }
-    };
-
-    let (name, tag) = registry::parse_model_name(model);
-    eprintln!("pulling {name}:{tag}...");
-
-    let last_pct = std::cell::Cell::new(0u8);
-    match registry::pull_model(model, &cache_dir, &|downloaded, total| {
-        if total == 0 {
-            return;
-        }
-        let pct = (downloaded * 100 / total) as u8;
-        if pct != last_pct.get() {
-            last_pct.set(pct);
-            let downloaded_mb = downloaded / (1024 * 1024);
-            let total_mb = total / (1024 * 1024);
-            eprint!("\r  {downloaded_mb} MB / {total_mb} MB ({pct}%)    ");
-        }
-    }) {
-        Ok(path) => {
-            eprintln!("\r  done: {}", path.display());
-        }
-        Err(e) => {
-            eprintln!("\nerror: {e}");
-            std::process::exit(1);
-        }
-    }
-}
-
-#[cfg(feature = "llamacpp")]
-fn run_tags(model: &str) {
-    use crabllm_llamacpp::registry;
-
-    let (name, _) = registry::parse_model_name(model);
-    match registry::fetch_tags(name) {
-        Ok(tags) => {
-            for tag in &tags {
-                println!("{name}:{tag}");
-            }
-        }
-        Err(e) => {
-            eprintln!("error: {e}");
-            std::process::exit(1);
-        }
-    }
-}
-
-/// Create a server pool for on-demand LlamaCpp model serving.
+/// Spawn llama-server processes for all LlamaCpp providers in config.
 ///
-/// Returns None if no LlamaCpp providers are configured.
+/// For each LlamaCpp provider, this finds the llama-server binary, spawns a
+/// child process, waits for it to become healthy, then rewrites the config
+/// entry to Openai pointing at the local server. The caller must hold
+/// the returned handles alive — dropping them kills the child processes.
 #[cfg(feature = "llamacpp")]
-fn create_server_pool(
-    config: &GatewayConfig,
-) -> Result<Option<Arc<crabllm_llamacpp::ServerPool>>, crabllm_core::Error> {
+fn spawn_llamacpp_servers(
+    config: &mut GatewayConfig,
+) -> Result<Vec<crabllm_llamacpp::LlamaCppServer>, crabllm_core::Error> {
     use crabllm_core::ProviderKind;
+    use crabllm_llamacpp::{LlamaCppConfig, LlamaCppServer};
 
     let has_llamacpp = config
         .providers
         .values()
         .any(|c| c.kind == ProviderKind::LlamaCpp);
     if !has_llamacpp {
-        return Ok(None);
+        return Ok(Vec::new());
     }
 
     let bin = crabllm_llamacpp::find_server_binary()?;
-    let cache_dir = crabllm_llamacpp::registry::default_cache_dir()?;
+    let mut servers = Vec::new();
 
-    // Use config from the first LlamaCpp provider for pool-level settings.
-    let first = config
-        .providers
-        .values()
-        .find(|c| c.kind == ProviderKind::LlamaCpp)
-        .unwrap();
+    for (name, pc) in &mut config.providers {
+        if pc.kind != ProviderKind::LlamaCpp {
+            continue;
+        }
 
-    let mut pool = crabllm_llamacpp::ServerPool::new(bin, cache_dir);
-    if let Some(timeout) = first.idle_timeout {
-        pool = pool.with_idle_timeout(Duration::from_secs(timeout));
-    }
-    if let Some(n) = first.n_gpu_layers {
-        pool = pool.with_gpu_layers(n);
-    }
-    if let Some(n) = first.n_ctx {
-        pool = pool.with_ctx_size(n);
-    }
-    if let Some(n) = first.n_threads {
-        pool = pool.with_threads(n);
+        let model_path = pc.model_path.as_ref().ok_or_else(|| {
+            crabllm_core::Error::Config(format!("provider '{name}' (llamacpp) requires model_path"))
+        })?;
+
+        eprintln!("starting llama-server for provider '{name}' (model: {model_path})");
+
+        let llama_config = LlamaCppConfig {
+            model_path: PathBuf::from(model_path),
+            n_gpu_layers: pc.n_gpu_layers.unwrap_or(0),
+            n_ctx: pc.n_ctx.unwrap_or(2048),
+            n_threads: pc.n_threads,
+        };
+
+        let server = LlamaCppServer::spawn(&bin, &llama_config).map_err(|e| {
+            crabllm_core::Error::Config(format!(
+                "provider '{name}': failed to start llama-server: {e}"
+            ))
+        })?;
+
+        eprintln!(
+            "llama-server for provider '{name}' ready on port {}",
+            server.port()
+        );
+
+        // Rewrite config entry so the provider crate sees Openai.
+        pc.kind = ProviderKind::Openai;
+        pc.base_url = Some(server.base_url());
+
+        servers.push(server);
     }
 
-    let pool = Arc::new(pool);
-    pool.start_idle_monitor();
-    Ok(Some(pool))
+    Ok(servers)
 }
 
 async fn serve(config_path: PathBuf, bind: Option<String>) {
-    let config = match GatewayConfig::from_file(&config_path) {
+    let mut config = match GatewayConfig::from_file(&config_path) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("error: failed to load config: {e}");
@@ -250,52 +195,29 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
         }
     };
 
-    let mut config = config;
     if let Some(bind) = bind {
         config.listen = bind;
     }
 
-    // Create server pool for on-demand LlamaCpp serving (if configured).
+    // Spawn llama-server processes and rewrite their config entries to
+    // Openai before building the registry. Held on this stack frame
+    // for lifetime — Drop kills the child processes after run() returns.
     #[cfg(feature = "llamacpp")]
-    let _pool = match create_server_pool(&config) {
-        Ok(p) => p,
+    let _llama_servers = match spawn_llamacpp_servers(&mut config) {
+        Ok(s) => s,
         Err(e) => {
-            eprintln!("error: failed to create llama-server pool: {e}");
+            eprintln!("error: failed to start llama-server: {e}");
             std::process::exit(1);
         }
     };
 
-    #[allow(unused_mut)]
-    let mut registry = match ProviderRegistry::from_config(&config) {
+    let registry = match ProviderRegistry::from_config(&config) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("error: failed to build provider registry: {e}");
             std::process::exit(1);
         }
     };
-
-    // Register LlamaCpp models with the on-demand server pool.
-    #[cfg(feature = "llamacpp")]
-    if let Some(ref pool) = _pool {
-        use crabllm_core::ProviderKind;
-        for (name, pc) in &config.providers {
-            if pc.kind != ProviderKind::LlamaCpp {
-                continue;
-            }
-            eprintln!(
-                "registering llamacpp provider '{name}' with {} models (on-demand)",
-                pc.models.len()
-            );
-            registry.add_llamacpp(
-                name,
-                pc.models.clone(),
-                Arc::clone(pool),
-                pc.weight.unwrap_or(1),
-                pc.max_retries.unwrap_or(2),
-                Duration::from_secs(pc.timeout.unwrap_or(30)),
-            );
-        }
-    }
 
     let storage_kind = config
         .storage
