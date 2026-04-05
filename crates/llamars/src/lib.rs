@@ -1,8 +1,9 @@
-//! Managed llama.cpp server for crabllm.
+//! llamars — managed llama.cpp server with Ollama registry support.
 //!
 //! This crate handles the full lifecycle of a `llama-server` binary:
 //! finding it on disk, downloading it from GitHub releases, spawning
-//! the process, health-checking, and tearing it down on drop.
+//! the process, health-checking, tearing it down on drop, and fetching
+//! models from the Ollama registry.
 
 use crabllm_core::Error;
 pub use download::{download, install_dir};
@@ -53,6 +54,6 @@ pub fn find_server_binary() -> Result<PathBuf, Error> {
     }
 
     Err(Error::Internal(
-        "llama-server not found. Run `crabllm llamacpp download` to install it".to_string(),
+        "llama-server not found. Run `llamars download` to install it".to_string(),
     ))
 }
