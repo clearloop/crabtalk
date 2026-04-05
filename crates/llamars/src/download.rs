@@ -36,7 +36,7 @@ fn detect_gpu() -> GpuBackend {
         && output.status.success()
         && let Some(version) = parse_cuda_version(&output.stdout)
     {
-        eprintln!("detected CUDA {version}");
+        tracing::info!(cuda_version = %version, "detected NVIDIA CUDA");
         return GpuBackend::Cuda { version };
     }
 
@@ -187,13 +187,13 @@ fn fetch_release(tag: Option<&str>) -> Result<(String, Vec<String>), Error> {
 ///
 /// Returns the path to the installed binary.
 pub fn download(tag: Option<&str>) -> Result<PathBuf, Error> {
-    eprintln!("fetching llama.cpp release...");
+    tracing::info!("fetching llama.cpp release...");
     let (tag, assets) = fetch_release(tag)?;
 
     let gpu = detect_gpu();
     let asset = pick_asset(&tag, &assets, &gpu)?;
 
-    eprintln!("downloading {asset} ({gpu:?})...");
+    tracing::info!(asset = %asset, gpu = ?gpu, "downloading llama-server");
 
     let url = format!("https://github.com/ggml-org/llama.cpp/releases/download/{tag}/{asset}");
     let resp = ureq::get(&url)
@@ -227,7 +227,7 @@ pub fn download(tag: Option<&str>) -> Result<PathBuf, Error> {
             .map_err(|e| Error::Internal(format!("failed to chmod: {e}")))?;
     }
 
-    eprintln!("installed llama-server to {}", dest.display());
+    tracing::info!(path = %dest.display(), "installed llama-server");
     Ok(dest)
 }
 

@@ -234,7 +234,7 @@ impl ServerPool {
                         .collect();
                     let mut servers = Vec::new();
                     for name in &expired {
-                        eprintln!("stopping idle llama-server for model '{name}'");
+                        tracing::info!(model = %name, "stopping idle llama-server");
                         if let Some(ModelState::Running { server, .. }) = models.remove(name) {
                             servers.push(server);
                         }

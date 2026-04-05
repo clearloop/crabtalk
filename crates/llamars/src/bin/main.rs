@@ -47,6 +47,7 @@ enum Commands {
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt::init();
     let cli = Cli::parse();
 
     match cli.command {
@@ -90,7 +91,7 @@ async fn serve(models: Vec<String>, port: u16) {
             continue;
         }
         let (name, tag) = registry::parse_model_name(model);
-        eprintln!("pulling {name}:{tag}...");
+        tracing::info!(model = %format!("{name}:{tag}"), "pulling model");
         if let Err(e) = registry::pull_model(model, &cache_dir, &|_, _| {}) {
             eprintln!("error: {e}");
             std::process::exit(1);
@@ -116,7 +117,7 @@ async fn serve(models: Vec<String>, port: u16) {
         }
     };
 
-    eprintln!("llamars listening on {addr}");
+    tracing::info!(addr = %addr, "llamars listening");
     if let Err(e) = axum::serve(listener, app).await {
         eprintln!("error: {e}");
         std::process::exit(1);
@@ -133,7 +134,7 @@ fn pull(model: &str) {
     };
 
     let (name, tag) = registry::parse_model_name(model);
-    eprintln!("pulling {name}:{tag}...");
+    tracing::info!(model = %format!("{name}:{tag}"), "pulling model");
 
     let last_pct = std::cell::Cell::new(0u8);
     match registry::pull_model(model, &cache_dir, &|downloaded, total| {

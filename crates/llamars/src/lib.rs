@@ -52,6 +52,6 @@ pub fn find_server_binary() -> Result<PathBuf, Error> {
     }
 
     // Not found anywhere — auto-download the correct build.
-    eprintln!("llama-server not found, downloading...");
+    tracing::info!("llama-server not found, downloading...");
     download(None)
 }
