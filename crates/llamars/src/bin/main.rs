@@ -13,6 +13,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Start a llama-server for a model
+    Serve {
+        /// Model name (e.g. llama3.2:3b) or path to a GGUF file
+        model: String,
+
+        /// Port to listen on (default: 8080)
+        #[arg(short, long, default_value = "8080")]
+        port: u16,
+    },
     /// Pull a model from the Ollama registry
     Pull {
         /// Model name (e.g. llama3.2:3b)
@@ -39,11 +48,97 @@ fn main() {
     let cli = Cli::parse();
 
     match cli.command {
+        Commands::Serve { model, port } => serve(&model, port),
         Commands::Pull { model } => pull(&model),
         Commands::Tags { model } => tags(&model),
         Commands::Download { tag } => download(tag.as_deref()),
         Commands::Check => check(),
         Commands::Which => which(),
+    }
+}
+
+fn serve(model: &str, port: u16) {
+    let bin = match llamars::find_server_binary() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    // Resolve model: Ollama name → cached GGUF, or direct file path.
+    let model_path = if std::path::Path::new(model).exists() {
+        std::path::PathBuf::from(model)
+    } else {
+        // Ensure model is pulled.
+        let cache_dir = match registry::default_cache_dir() {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        };
+        match registry::cached_model_path(model, &cache_dir) {
+            Some(p) => p,
+            None => {
+                eprintln!("model not cached, pulling...");
+                match registry::pull_model(model, &cache_dir, &|_, _| {}) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            }
+        }
+    };
+
+    let config = llamars::LlamaCppConfig {
+        model_path,
+        n_gpu_layers: 999,
+        n_ctx: 4096,
+        n_threads: None,
+    };
+
+    let (name, tag) = registry::parse_model_name(model);
+    eprintln!("starting llama-server for {name}:{tag} on port {port}...");
+
+    // Spawn llama-server with the requested port.
+    let mut cmd = std::process::Command::new(&bin);
+    cmd.arg("--model")
+        .arg(&config.model_path)
+        .arg("--port")
+        .arg(port.to_string())
+        .arg("--ctx-size")
+        .arg(config.n_ctx.to_string())
+        .arg("--n-gpu-layers")
+        .arg(config.n_gpu_layers.to_string());
+
+    if let Some(threads) = config.n_threads {
+        cmd.arg("--threads").arg(threads.to_string());
+    }
+
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("error: failed to start llama-server: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    eprintln!("llama-server running on http://127.0.0.1:{port}/v1");
+
+    // Wait for the process — Ctrl+C will kill it.
+    match child.wait() {
+        Ok(status) => {
+            if !status.success() {
+                std::process::exit(status.code().unwrap_or(1));
+            }
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            std::process::exit(1);
+        }
     }
 }
 

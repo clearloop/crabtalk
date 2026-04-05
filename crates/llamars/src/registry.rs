@@ -42,16 +42,11 @@ pub fn parse_model_name(model: &str) -> (&str, &str) {
     model.split_once(':').unwrap_or((model, "latest"))
 }
 
-/// Default directory for downloaded models.
-///
-/// Resolution: `$CRABLLM_HOME/models` → platform data dir → error
+/// Default directory for downloaded models: `~/.crabtalk/models/`
 pub fn default_cache_dir() -> Result<PathBuf, Error> {
-    if let Ok(dir) = std::env::var("CRABLLM_HOME") {
-        return Ok(PathBuf::from(dir).join("models"));
-    }
-    dirs::data_local_dir()
-        .map(|d| d.join("crabllm").join("models"))
-        .ok_or_else(|| Error::Internal("cannot determine data directory (no $HOME)".to_string()))
+    dirs::home_dir()
+        .map(|d| d.join(".crabtalk").join("models"))
+        .ok_or_else(|| Error::Internal("cannot determine home directory".to_string()))
 }
 
 /// Return the cached GGUF path for a model if it exists and passes digest check.
