@@ -10,7 +10,9 @@ categories = ["command-line-utilities"]
 
 [dependencies]
 crabllm-core.workspace = true
+serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 
 # llamacpp process management
 ureq = { workspace = true }

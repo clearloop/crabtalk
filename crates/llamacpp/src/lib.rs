@@ -10,6 +10,7 @@ pub use server::{LlamaCppConfig, LlamaCppServer};
 use std::path::PathBuf;
 
 mod download;
+pub mod registry;
 mod server;
 
 /// The platform-specific binary name for llama-server.
