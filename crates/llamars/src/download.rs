@@ -16,22 +16,13 @@ enum GpuBackend {
     Cuda { version: String },
 }
 
-/// Default directory for downloaded llama-server binaries.
-///
-/// Resolution order:
-/// 1. `$CRABLLM_HOME/bin`
-/// 2. Platform data directory:
-///    - Linux:   `~/.local/share/crabllm/bin`
-///    - macOS:   `~/Library/Application Support/crabllm/bin`
-///    - Windows: `%LOCALAPPDATA%\crabllm\bin`
+/// Default directory for downloaded llama-server binaries: `~/.crabtalk/bin/llamacpp`
 pub fn install_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("CRABLLM_HOME") {
-        return PathBuf::from(dir).join("bin");
-    }
-    dirs::data_local_dir()
+    dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join("crabllm")
+        .join(".crabtalk")
         .join("bin")
+        .join("llamacpp")
 }
 
 /// Detect the GPU backend available on this machine.
