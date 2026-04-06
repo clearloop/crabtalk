@@ -1,6 +1,11 @@
+use bytes::Bytes;
 use clap::{Parser, Subcommand};
-use crabllm_core::{Extension, GatewayConfig, Storage};
-use crabllm_provider::ProviderRegistry;
+use crabllm_core::{
+    AudioSpeechRequest, BoxStream, ChatCompletionChunk, ChatCompletionRequest,
+    ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse, Error, Extension, GatewayConfig,
+    ImageRequest, MultipartField, Provider, Storage,
+};
+use crabllm_provider::{ProviderRegistry, RemoteProvider};
 use crabllm_proxy::{
     AppState,
     ext::{
@@ -15,6 +20,75 @@ use std::{
     sync::{Arc, RwLock},
     time::Duration,
 };
+
+/// Workspace-level union of every provider type the binary links.
+///
+/// `crabllm-proxy` is generic over `P: Provider` and gets monomorphized
+/// against this enum at the binary boundary. Adding a new provider source
+/// (e.g. an in-process inference backend) means adding a variant here and
+/// a delegation arm in the `impl Provider for Dispatch` below — the
+/// provider crate stays untouched.
+#[derive(Debug, Clone)]
+pub enum Dispatch {
+    Remote(RemoteProvider),
+}
+
+impl Provider for Dispatch {
+    async fn chat_completion(
+        &self,
+        request: &ChatCompletionRequest,
+    ) -> Result<ChatCompletionResponse, Error> {
+        match self {
+            Dispatch::Remote(p) => p.chat_completion(request).await,
+        }
+    }
+
+    async fn chat_completion_stream(
+        &self,
+        request: &ChatCompletionRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        match self {
+            Dispatch::Remote(p) => p.chat_completion_stream(request).await,
+        }
+    }
+
+    async fn embedding(
+        &self,
+        request: &EmbeddingRequest,
+    ) -> Result<EmbeddingResponse, Error> {
+        match self {
+            Dispatch::Remote(p) => p.embedding(request).await,
+        }
+    }
+
+    async fn image_generation(
+        &self,
+        request: &ImageRequest,
+    ) -> Result<(Bytes, String), Error> {
+        match self {
+            Dispatch::Remote(p) => p.image_generation(request).await,
+        }
+    }
+
+    async fn audio_speech(
+        &self,
+        request: &AudioSpeechRequest,
+    ) -> Result<(Bytes, String), Error> {
+        match self {
+            Dispatch::Remote(p) => p.audio_speech(request).await,
+        }
+    }
+
+    async fn audio_transcription(
+        &self,
+        model: &str,
+        fields: &[MultipartField],
+    ) -> Result<(Bytes, String), Error> {
+        match self {
+            Dispatch::Remote(p) => p.audio_transcription(model, fields).await,
+        }
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "crabllm", about = "High-performance LLM API gateway")]
@@ -211,13 +285,14 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
         }
     };
 
-    let registry = match ProviderRegistry::from_config(&config) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("error: failed to build provider registry: {e}");
-            std::process::exit(1);
-        }
-    };
+    let registry: ProviderRegistry<Dispatch> =
+        match ProviderRegistry::from_config(&config, Dispatch::Remote) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("error: failed to build provider registry: {e}");
+                std::process::exit(1);
+            }
+        };
 
     let storage_kind = config
         .storage
@@ -278,7 +353,7 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
 
 async fn run<S: Storage + 'static>(
     config: GatewayConfig,
-    registry: ProviderRegistry,
+    registry: ProviderRegistry<Dispatch>,
     storage: Arc<S>,
 ) {
     let (extensions, mut admin_routes) =
@@ -331,12 +406,8 @@ async fn run<S: Storage + 'static>(
         ));
     }
 
-    let state = AppState {
+    let state: AppState<S, Dispatch> = AppState {
         registry,
-        client: reqwest::Client::builder()
-            .tcp_nodelay(true)
-            .build()
-            .expect("failed to build HTTP client"),
         config,
         extensions: Arc::new(extensions),
         storage,

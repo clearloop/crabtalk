@@ -5,7 +5,7 @@ use axum::{
     response::Response,
     routing::{get, post},
 };
-use crabllm_core::Storage;
+use crabllm_core::{Provider, Storage};
 
 pub use auth::KeyName;
 pub use state::AppState;
@@ -28,26 +28,30 @@ async fn track_active_connections(request: Request, next: middleware::Next) -> R
 }
 
 /// Build the Axum router with all API routes and admin routes.
-pub fn router<S: Storage + 'static>(state: AppState<S>, admin_routes: Vec<Router>) -> Router {
-    let mut app = Router::<AppState<S>>::new()
+pub fn router<S, P>(state: AppState<S, P>, admin_routes: Vec<Router>) -> Router
+where
+    S: Storage + 'static,
+    P: Provider + Clone + 'static,
+{
+    let mut app = Router::<AppState<S, P>>::new()
         .route(
             "/v1/chat/completions",
-            post(handlers::chat_completions::<S>),
+            post(handlers::chat_completions::<S, P>),
         )
-        .route("/v1/embeddings", post(handlers::embeddings::<S>))
+        .route("/v1/embeddings", post(handlers::embeddings::<S, P>))
         .route(
             "/v1/images/generations",
-            post(handlers::image_generations::<S>),
+            post(handlers::image_generations::<S, P>),
         )
-        .route("/v1/audio/speech", post(handlers::audio_speech::<S>))
+        .route("/v1/audio/speech", post(handlers::audio_speech::<S, P>))
         .route(
             "/v1/audio/transcriptions",
-            post(handlers::audio_transcriptions::<S>),
+            post(handlers::audio_transcriptions::<S, P>),
         )
-        .route("/v1/models", get(handlers::models::<S>))
+        .route("/v1/models", get(handlers::models::<S, P>))
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            auth::auth::<S>,
+            auth::auth::<S, P>,
         ))
         .layer(middleware::from_fn(track_active_connections))
         .with_state(state);

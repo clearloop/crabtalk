@@ -6,7 +6,7 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use crabllm_core::{ApiError, Storage};
+use crabllm_core::{ApiError, Provider, Storage};
 
 /// Wrapper for the authenticated key name, inserted into request extensions.
 #[derive(Clone, Debug)]
@@ -15,8 +15,8 @@ pub struct KeyName(pub Option<String>);
 /// Auth middleware: validates Bearer token against configured virtual keys.
 /// Skips auth only when no admin_token is configured AND key_map is empty.
 /// Inserts `KeyName` into request extensions for downstream handlers.
-pub async fn auth<S: Storage + 'static>(
-    State(state): State<AppState<S>>,
+pub async fn auth<S: Storage + 'static, P: Provider + Clone + 'static>(
+    State(state): State<AppState<S, P>>,
     mut request: Request,
     next: Next,
 ) -> Response {

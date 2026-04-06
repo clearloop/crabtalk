@@ -411,13 +411,13 @@ name = "crabllm"
 version = "0.0.12"
 dependencies = [
  "axum",
+ "bytes",
  "clap",
  "crabllm-core",
  "crabllm-provider",
  "crabllm-proxy",
  "llamars",
  "metrics-exporter-prometheus",
- "reqwest",
  "serde_json",
  "tokio",
  "tracing-subscriber",
