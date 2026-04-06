@@ -26,11 +26,12 @@ pub type BoxStream<'a, T> = Pin<Box<dyn Stream<Item = T> + Send + 'a>>;
 /// returning the stream** — the returned `BoxStream` is `'static` and cannot
 /// borrow from the request reference.
 ///
-/// Default implementations return `Error::not_implemented` so concrete
-/// providers only need to override the methods they actually support. The
-/// default impls intentionally capture neither `self` nor the request,
-/// keeping the returned future `'static` and `Send` regardless of
-/// implementor.
+/// The optional methods (`embedding`, `image_generation`, `audio_speech`,
+/// `audio_transcription`) default to returning `Error::not_implemented`, so
+/// concrete providers only override the methods they actually support.
+/// Overrides are free to capture `self` or the request reference — only the
+/// default impl bodies happen to capture nothing, and that's an
+/// implementation detail of the defaults, not a constraint on the trait.
 pub trait Provider: Send + Sync {
     fn chat_completion(
         &self,
