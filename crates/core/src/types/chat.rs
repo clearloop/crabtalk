@@ -217,7 +217,7 @@ pub struct Message {
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ToolCall {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index: Option<u32>,
@@ -227,13 +227,13 @@ pub struct ToolCall {
     pub function: FunctionCall,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct FunctionCall {
     pub name: String,
     pub arguments: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Tool {
     #[serde(rename = "type")]
     pub kind: ToolType,
@@ -242,7 +242,7 @@ pub struct Tool {
     pub strict: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct FunctionDef {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
