@@ -63,6 +63,30 @@ pub(crate) fn make_client() -> reqwest::Client {
         .expect("crabllm: failed to build reqwest client")
 }
 
+/// Strip known endpoint suffixes so users can paste either a bare origin
+/// (`https://api.openai.com/v1`) or a full endpoint URL
+/// (`https://api.openai.com/v1/chat/completions`) and get the same result.
+///
+/// Only the OpenAI-shaped endpoints are stripped: `/chat/completions`,
+/// `/embeddings`, `/audio/transcriptions`, `/audio/speech`,
+/// `/images/generations`. Anthropic, Google, and Bedrock don't take a
+/// `base_url` field at all, so this function is never called for them.
+fn normalize_base_url(url: &str) -> String {
+    let url = url.trim_end_matches('/');
+    for suffix in [
+        "/chat/completions",
+        "/embeddings",
+        "/audio/transcriptions",
+        "/audio/speech",
+        "/images/generations",
+    ] {
+        if let Some(stripped) = url.strip_suffix(suffix) {
+            return stripped.to_string();
+        }
+    }
+    url.to_string()
+}
+
 impl RemoteProvider {
     /// Build a `RemoteProvider` from a `ProviderConfig`, reusing a shared
     /// `reqwest::Client`. Cloning the client is cheap — internally it's
@@ -71,15 +95,19 @@ impl RemoteProvider {
     ///
     /// Routes via [`ProviderConfig::effective_kind`] so a config with
     /// `kind = "openai"` and a `base_url` containing "anthropic" auto-upgrades
-    /// to the Anthropic dispatch path.
+    /// to the Anthropic dispatch path. Base URLs are normalized so a pasted
+    /// full endpoint URL (e.g. `…/v1/chat/completions`) collapses to the bare
+    /// origin (`…/v1`).
     pub fn new(config: &ProviderConfig, client: reqwest::Client) -> Self {
         match config.effective_kind() {
             ProviderKind::Openai => RemoteProvider::Openai {
                 client,
-                base_url: config
-                    .base_url
-                    .clone()
-                    .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+                base_url: normalize_base_url(
+                    &config
+                        .base_url
+                        .clone()
+                        .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+                ),
                 api_key: config.api_key.clone().unwrap_or_default(),
             },
             ProviderKind::Anthropic => RemoteProvider::Anthropic {
@@ -92,15 +120,17 @@ impl RemoteProvider {
             },
             ProviderKind::Ollama => RemoteProvider::Openai {
                 client,
-                base_url: config
-                    .base_url
-                    .clone()
-                    .unwrap_or_else(|| "http://localhost:11434/v1".to_string()),
+                base_url: normalize_base_url(
+                    &config
+                        .base_url
+                        .clone()
+                        .unwrap_or_else(|| "http://localhost:11434/v1".to_string()),
+                ),
                 api_key: config.api_key.clone().unwrap_or_default(),
             },
             ProviderKind::Azure => RemoteProvider::Azure {
                 client,
-                base_url: config.base_url.clone().unwrap_or_default(),
+                base_url: normalize_base_url(&config.base_url.clone().unwrap_or_default()),
                 api_key: config.api_key.clone().unwrap_or_default(),
                 api_version: config
                     .api_version
