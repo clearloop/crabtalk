@@ -1,5 +1,10 @@
 use crate::{RemoteProvider, make_client};
-use crabllm_core::{Error, GatewayConfig, ProviderConfig, ProviderKind};
+use bytes::Bytes;
+use crabllm_core::{
+    AudioSpeechRequest, BoxStream, ChatCompletionChunk, ChatCompletionRequest,
+    ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse, Error, GatewayConfig,
+    ImageRequest, MultipartField, Provider, ProviderConfig, ProviderKind,
+};
 use rand::Rng;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
@@ -279,4 +284,91 @@ fn validate_provider(name: &str, config: &ProviderConfig) -> Result<(), Error> {
             )))
         }
     }
+}
+
+/// `ProviderRegistry<P>` is itself a `Provider`. Each call routes on the
+/// request's (alias-resolved) model name, picks one weighted deployment via
+/// `dispatch`, and forwards to the inner provider.
+///
+/// This lets downstream library consumers use the registry directly as a
+/// `P: Provider` — the registry handles model-name routing so the caller
+/// never has to touch `Deployment` or write their own delegation wrapper.
+///
+/// Note: this impl picks a single deployment and does not walk fallback
+/// deployments or retry. The HTTP proxy still drives its own retry/fallback
+/// loops over `&Deployment<P>` from `dispatch_list`, and does not dispatch
+/// through this impl.
+impl<P: Provider> Provider for ProviderRegistry<P> {
+    async fn chat_completion(
+        &self,
+        request: &ChatCompletionRequest,
+    ) -> Result<ChatCompletionResponse, Error> {
+        let model = self.resolve(&request.model);
+        let deployment = self
+            .dispatch(model)
+            .ok_or_else(|| model_not_registered(model))?;
+        deployment.provider.chat_completion(request).await
+    }
+
+    async fn chat_completion_stream(
+        &self,
+        request: &ChatCompletionRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        let model = self.resolve(&request.model);
+        let deployment = self
+            .dispatch(model)
+            .ok_or_else(|| model_not_registered(model))?;
+        deployment.provider.chat_completion_stream(request).await
+    }
+
+    async fn embedding(
+        &self,
+        request: &EmbeddingRequest,
+    ) -> Result<EmbeddingResponse, Error> {
+        let model = self.resolve(&request.model);
+        let deployment = self
+            .dispatch(model)
+            .ok_or_else(|| model_not_registered(model))?;
+        deployment.provider.embedding(request).await
+    }
+
+    async fn image_generation(
+        &self,
+        request: &ImageRequest,
+    ) -> Result<(Bytes, String), Error> {
+        let model = self.resolve(&request.model);
+        let deployment = self
+            .dispatch(model)
+            .ok_or_else(|| model_not_registered(model))?;
+        deployment.provider.image_generation(request).await
+    }
+
+    async fn audio_speech(
+        &self,
+        request: &AudioSpeechRequest,
+    ) -> Result<(Bytes, String), Error> {
+        let model = self.resolve(&request.model);
+        let deployment = self
+            .dispatch(model)
+            .ok_or_else(|| model_not_registered(model))?;
+        deployment.provider.audio_speech(request).await
+    }
+
+    async fn audio_transcription(
+        &self,
+        model: &str,
+        fields: &[MultipartField],
+    ) -> Result<(Bytes, String), Error> {
+        let resolved = self.resolve(model);
+        let deployment = self
+            .dispatch(resolved)
+            .ok_or_else(|| model_not_registered(resolved))?;
+        deployment.provider.audio_transcription(model, fields).await
+    }
+}
+
+fn model_not_registered(model: &str) -> Error {
+    Error::Config(format!(
+        "model '{model}' not registered in provider registry"
+    ))
 }
