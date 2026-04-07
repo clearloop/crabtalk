@@ -2,9 +2,8 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 // ── Enums ──
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Role {
-    #[default]
     User,
     Assistant,
     System,
@@ -199,7 +198,7 @@ pub enum Stop {
     Multiple(Vec<String>),
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -215,6 +214,35 @@ pub struct Message {
     #[serde(flatten, default)]
     #[serde(skip_serializing_if = "serde_json::Map::is_empty")]
     pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+impl Message {
+    fn with_role(role: Role, content: impl Into<String>) -> Self {
+        Self {
+            role,
+            content: Some(serde_json::Value::String(content.into())),
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+            reasoning_content: None,
+            extra: serde_json::Map::new(),
+        }
+    }
+
+    /// Build a `Message` with role `User` and the given text content.
+    pub fn user(content: impl Into<String>) -> Self {
+        Self::with_role(Role::User, content)
+    }
+
+    /// Build a `Message` with role `Assistant` and the given text content.
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self::with_role(Role::Assistant, content)
+    }
+
+    /// Build a `Message` with role `System` and the given text content.
+    pub fn system(content: impl Into<String>) -> Self {
+        Self::with_role(Role::System, content)
+    }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -266,7 +294,7 @@ pub struct ChatCompletionResponse {
     pub system_fingerprint: Option<String>,
 }
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Choice {
     pub index: u32,
     pub message: Message,
