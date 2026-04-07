@@ -2,8 +2,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 // ── Enums ──
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub enum Role {
+    #[default]
     User,
     Assistant,
     System,
@@ -198,7 +199,7 @@ pub enum Stop {
     Multiple(Vec<String>),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub role: Role,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -252,7 +253,7 @@ pub struct FunctionDef {
 
 // ── Response ──
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ChatCompletionResponse {
     pub id: String,
     pub object: String,
@@ -265,7 +266,7 @@ pub struct ChatCompletionResponse {
     pub system_fingerprint: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Choice {
     pub index: u32,
     pub message: Message,
@@ -296,7 +297,7 @@ pub struct CompletionTokensDetails {
 
 // ── Streaming ──
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ChatCompletionChunk {
     pub id: String,
     pub object: String,
@@ -309,7 +310,7 @@ pub struct ChatCompletionChunk {
     pub system_fingerprint: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ChunkChoice {
     pub index: u32,
     pub delta: Delta,
@@ -319,7 +320,7 @@ pub struct ChunkChoice {
     pub logprobs: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Delta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<Role>,
