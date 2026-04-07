@@ -9,8 +9,9 @@ use axum::{
     },
 };
 use crabllm_core::{
-    ApiError, AudioSpeechRequest, ChatCompletionRequest, EmbeddingRequest, ImageRequest, Model,
-    ModelList, RequestContext, Storage,
+    ApiError, AudioSpeechRequest, BoxStream, ChatCompletionChunk, ChatCompletionRequest,
+    EmbeddingRequest, ImageRequest, Model, ModelList, MultipartField, Provider, RequestContext,
+    Storage,
 };
 use crabllm_provider::Deployment;
 use futures::StreamExt;
@@ -62,11 +63,15 @@ fn record_tokens(ctx: &RequestContext, prompt: u32, completion: u32) {
 }
 
 /// POST /v1/chat/completions
-pub async fn chat_completions<S: Storage + 'static>(
-    State(state): State<AppState<S>>,
+pub async fn chat_completions<S, P>(
+    State(state): State<AppState<S, P>>,
     Extension(key_name): Extension<KeyName>,
     Json(mut request): Json<ChatCompletionRequest>,
-) -> Response {
+) -> Response
+where
+    S: Storage + 'static,
+    P: Provider + 'static,
+{
     let model = state.registry.resolve(&request.model).to_string();
     let deployments = match state.registry.dispatch_list(&model) {
         Some(list) => list,
@@ -120,7 +125,7 @@ pub async fn chat_completions<S: Storage + 'static>(
         // Streaming: retry + fallback on connection errors only (pre-stream).
         let mut last_err = None;
         for deployment in &deployments {
-            match try_stream_with_retries(deployment, &state.client, &request).await {
+            match try_stream_with_retries(deployment, &request).await {
                 Ok(stream) => {
                     let extensions = state.extensions.clone();
                     let ctx = Arc::new(ctx);
@@ -214,7 +219,7 @@ pub async fn chat_completions<S: Storage + 'static>(
 
         let mut last_err = None;
         for deployment in &deployments {
-            match try_chat_with_retries(deployment, &state.client, &request).await {
+            match try_chat_with_retries(deployment, &request).await {
                 Ok(resp) => {
                     if let Some(ref usage) = resp.usage {
                         record_tokens(&ctx, usage.prompt_tokens, usage.completion_tokens);
@@ -240,11 +245,15 @@ pub async fn chat_completions<S: Storage + 'static>(
 }
 
 /// POST /v1/embeddings
-pub async fn embeddings<S: Storage + 'static>(
-    State(state): State<AppState<S>>,
+pub async fn embeddings<S, P>(
+    State(state): State<AppState<S, P>>,
     Extension(key_name): Extension<KeyName>,
     Json(request): Json<EmbeddingRequest>,
-) -> Response {
+) -> Response
+where
+    S: Storage + 'static,
+    P: Provider + 'static,
+{
     let model = state.registry.resolve(&request.model).to_string();
     let deployments = match state.registry.dispatch_list(&model) {
         Some(list) => list,
@@ -288,7 +297,7 @@ pub async fn embeddings<S: Storage + 'static>(
 
     let mut last_err = None;
     for deployment in &deployments {
-        match try_embedding_with_retries(deployment, &state.client, &request).await {
+        match try_embedding_with_retries(deployment, &request).await {
             Ok(resp) => {
                 record_duration(&ctx, "2xx");
                 return Json(resp).into_response();
@@ -307,7 +316,11 @@ pub async fn embeddings<S: Storage + 'static>(
 }
 
 /// GET /v1/models
-pub async fn models<S: Storage + 'static>(State(state): State<AppState<S>>) -> Json<ModelList> {
+pub async fn models<S, P>(State(state): State<AppState<S, P>>) -> Json<ModelList>
+where
+    S: Storage + 'static,
+    P: Provider + 'static,
+{
     let data: Vec<Model> = state
         .registry
         .model_names()
@@ -326,11 +339,15 @@ pub async fn models<S: Storage + 'static>(State(state): State<AppState<S>>) -> J
 }
 
 /// POST /v1/images/generations
-pub async fn image_generations<S: Storage + 'static>(
-    State(state): State<AppState<S>>,
+pub async fn image_generations<S, P>(
+    State(state): State<AppState<S, P>>,
     Extension(key_name): Extension<KeyName>,
     Json(request): Json<ImageRequest>,
-) -> Response {
+) -> Response
+where
+    S: Storage + 'static,
+    P: Provider + 'static,
+{
     let model = state.registry.resolve(&request.model).to_string();
     let deployments = match state.registry.dispatch_list(&model) {
         Some(list) => list,
@@ -376,9 +393,7 @@ pub async fn image_generations<S: Storage + 'static>(
     for deployment in &deployments {
         match with_timeout(
             deployment.timeout,
-            deployment
-                .provider
-                .image_generation(&state.client, &request),
+            deployment.provider.image_generation(&request),
         )
         .await
         {
@@ -400,11 +415,15 @@ pub async fn image_generations<S: Storage + 'static>(
 }
 
 /// POST /v1/audio/speech
-pub async fn audio_speech<S: Storage + 'static>(
-    State(state): State<AppState<S>>,
+pub async fn audio_speech<S, P>(
+    State(state): State<AppState<S, P>>,
     Extension(key_name): Extension<KeyName>,
     Json(request): Json<AudioSpeechRequest>,
-) -> Response {
+) -> Response
+where
+    S: Storage + 'static,
+    P: Provider + 'static,
+{
     let model = state.registry.resolve(&request.model).to_string();
     let deployments = match state.registry.dispatch_list(&model) {
         Some(list) => list,
@@ -450,7 +469,7 @@ pub async fn audio_speech<S: Storage + 'static>(
     for deployment in &deployments {
         match with_timeout(
             deployment.timeout,
-            deployment.provider.audio_speech(&state.client, &request),
+            deployment.provider.audio_speech(&request),
         )
         .await
         {
@@ -471,38 +490,16 @@ pub async fn audio_speech<S: Storage + 'static>(
     error_response(e)
 }
 
-/// A buffered multipart field for reconstructing forms across fallback attempts.
-struct BufferedField {
-    name: String,
-    filename: Option<String>,
-    content_type: Option<String>,
-    bytes: bytes::Bytes,
-}
-
-/// Rebuild a `reqwest::multipart::Form` from buffered fields.
-fn rebuild_form(fields: &[BufferedField]) -> reqwest::multipart::Form {
-    let mut form = reqwest::multipart::Form::new();
-    for field in fields {
-        let mut part = reqwest::multipart::Part::stream(field.bytes.clone());
-        if let Some(ref filename) = field.filename {
-            part = part.file_name(filename.clone());
-        }
-        if let Some(ref content_type) = field.content_type {
-            part = part
-                .mime_str(content_type)
-                .unwrap_or_else(|_| reqwest::multipart::Part::stream(field.bytes.clone()));
-        }
-        form = form.part(field.name.clone(), part);
-    }
-    form
-}
-
 /// POST /v1/audio/transcriptions
-pub async fn audio_transcriptions<S: Storage + 'static>(
-    State(state): State<AppState<S>>,
+pub async fn audio_transcriptions<S, P>(
+    State(state): State<AppState<S, P>>,
     Extension(key_name): Extension<KeyName>,
     mut multipart: Multipart,
-) -> Response {
+) -> Response
+where
+    S: Storage + 'static,
+    P: Provider + 'static,
+{
     // Buffer all multipart fields and extract the model name.
     let mut fields = Vec::with_capacity(8);
     let mut model_value = None;
@@ -531,7 +528,7 @@ pub async fn audio_transcriptions<S: Storage + 'static>(
         if name == "model" {
             model_value = Some(String::from_utf8_lossy(&bytes).into_owned());
         }
-        fields.push(BufferedField {
+        fields.push(MultipartField {
             name,
             filename,
             content_type,
@@ -592,15 +589,13 @@ pub async fn audio_transcriptions<S: Storage + 'static>(
         }
     }
 
-    // Fallback only — rebuild form for each attempt.
+    // Fallback only (no retry loop) — provider impls rebuild a fresh
+    // multipart form per call from the buffered field slice.
     let mut last_err = None;
     for deployment in &deployments {
-        let form = rebuild_form(&fields);
         match with_timeout(
             deployment.timeout,
-            deployment
-                .provider
-                .audio_transcription(&state.client, &model, form),
+            deployment.provider.audio_transcription(&model, &fields),
         )
         .await
         {
@@ -643,15 +638,14 @@ fn jittered(backoff: Duration) -> Duration {
 }
 
 /// Retry a non-streaming chat completion on a single deployment.
-async fn try_chat_with_retries(
-    deployment: &Deployment,
-    client: &reqwest::Client,
+async fn try_chat_with_retries<P: Provider>(
+    deployment: &Deployment<P>,
     request: &ChatCompletionRequest,
 ) -> Result<crabllm_core::ChatCompletionResponse, crabllm_core::Error> {
     let mut last_err;
     match with_timeout(
         deployment.timeout,
-        deployment.provider.chat_completion(client, request),
+        deployment.provider.chat_completion(request),
     )
     .await
     {
@@ -670,7 +664,7 @@ async fn try_chat_with_retries(
         backoff *= 2;
         match with_timeout(
             deployment.timeout,
-            deployment.provider.chat_completion(client, request),
+            deployment.provider.chat_completion(request),
         )
         .await
         {
@@ -688,21 +682,15 @@ async fn try_chat_with_retries(
 }
 
 /// Retry a streaming chat completion on a single deployment.
-async fn try_stream_with_retries(
-    deployment: &Deployment,
-    client: &reqwest::Client,
+async fn try_stream_with_retries<P: Provider>(
+    deployment: &Deployment<P>,
     request: &ChatCompletionRequest,
-) -> Result<
-    futures::stream::BoxStream<
-        'static,
-        Result<crabllm_core::ChatCompletionChunk, crabllm_core::Error>,
-    >,
-    crabllm_core::Error,
-> {
+) -> Result<BoxStream<'static, Result<ChatCompletionChunk, crabllm_core::Error>>, crabllm_core::Error>
+{
     let mut last_err;
     match with_timeout(
         deployment.timeout,
-        deployment.provider.chat_completion_stream(client, request),
+        deployment.provider.chat_completion_stream(request),
     )
     .await
     {
@@ -721,7 +709,7 @@ async fn try_stream_with_retries(
         backoff *= 2;
         match with_timeout(
             deployment.timeout,
-            deployment.provider.chat_completion_stream(client, request),
+            deployment.provider.chat_completion_stream(request),
         )
         .await
         {
@@ -739,18 +727,12 @@ async fn try_stream_with_retries(
 }
 
 /// Retry an embedding request on a single deployment.
-async fn try_embedding_with_retries(
-    deployment: &Deployment,
-    client: &reqwest::Client,
+async fn try_embedding_with_retries<P: Provider>(
+    deployment: &Deployment<P>,
     request: &EmbeddingRequest,
 ) -> Result<crabllm_core::EmbeddingResponse, crabllm_core::Error> {
     let mut last_err;
-    match with_timeout(
-        deployment.timeout,
-        deployment.provider.embedding(client, request),
-    )
-    .await
-    {
+    match with_timeout(deployment.timeout, deployment.provider.embedding(request)).await {
         Ok(resp) => return Ok(resp),
         Err(e) => {
             if !e.is_transient() || deployment.max_retries == 0 {
@@ -764,12 +746,7 @@ async fn try_embedding_with_retries(
     for _ in 0..deployment.max_retries {
         tokio::time::sleep(jittered(backoff)).await;
         backoff *= 2;
-        match with_timeout(
-            deployment.timeout,
-            deployment.provider.embedding(client, request),
-        )
-        .await
-        {
+        match with_timeout(deployment.timeout, deployment.provider.embedding(request)).await {
             Ok(resp) => return Ok(resp),
             Err(e) => {
                 if !e.is_transient() {

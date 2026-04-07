@@ -216,7 +216,36 @@ pub struct Message {
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+impl Message {
+    fn with_role(role: Role, content: impl Into<String>) -> Self {
+        Self {
+            role,
+            content: Some(serde_json::Value::String(content.into())),
+            tool_calls: None,
+            tool_call_id: None,
+            name: None,
+            reasoning_content: None,
+            extra: serde_json::Map::new(),
+        }
+    }
+
+    /// Build a `Message` with role `User` and the given text content.
+    pub fn user(content: impl Into<String>) -> Self {
+        Self::with_role(Role::User, content)
+    }
+
+    /// Build a `Message` with role `Assistant` and the given text content.
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self::with_role(Role::Assistant, content)
+    }
+
+    /// Build a `Message` with role `System` and the given text content.
+    pub fn system(content: impl Into<String>) -> Self {
+        Self::with_role(Role::System, content)
+    }
+}
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ToolCall {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index: Option<u32>,
@@ -226,13 +255,13 @@ pub struct ToolCall {
     pub function: FunctionCall,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct FunctionCall {
     pub name: String,
     pub arguments: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Tool {
     #[serde(rename = "type")]
     pub kind: ToolType,
@@ -241,7 +270,7 @@ pub struct Tool {
     pub strict: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct FunctionDef {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -252,7 +281,7 @@ pub struct FunctionDef {
 
 // ── Response ──
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ChatCompletionResponse {
     pub id: String,
     pub object: String,
@@ -296,7 +325,7 @@ pub struct CompletionTokensDetails {
 
 // ── Streaming ──
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ChatCompletionChunk {
     pub id: String,
     pub object: String,
@@ -309,7 +338,7 @@ pub struct ChatCompletionChunk {
     pub system_fingerprint: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct ChunkChoice {
     pub index: u32,
     pub delta: Delta,
@@ -319,7 +348,7 @@ pub struct ChunkChoice {
     pub logprobs: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Delta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<Role>,

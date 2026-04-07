@@ -408,7 +408,7 @@ dependencies = [
 
 [[package]]
 name = "crabllm"
-version = "0.0.12"
+version = "0.0.14"
 dependencies = [
  "axum",
  "clap",
@@ -417,7 +417,6 @@ dependencies = [
  "crabllm-proxy",
  "llamars",
  "metrics-exporter-prometheus",
- "reqwest",
  "serde_json",
  "tokio",
  "tracing-subscriber",
@@ -425,7 +424,7 @@ dependencies = [
 
 [[package]]
 name = "crabllm-bench"
-version = "0.0.12"
+version = "0.0.14"
 dependencies = [
  "axum",
  "clap",
@@ -438,8 +437,10 @@ dependencies = [
 
 [[package]]
 name = "crabllm-core"
-version = "0.0.12"
+version = "0.0.14"
 dependencies = [
+ "bytes",
+ "futures-core",
  "serde",
  "serde_json",
  "toml",
@@ -447,7 +448,7 @@ dependencies = [
 
 [[package]]
 name = "crabllm-provider"
-version = "0.0.12"
+version = "0.0.14"
 dependencies = [
  "bytes",
  "crabllm-core",
@@ -463,7 +464,7 @@ dependencies = [
 
 [[package]]
 name = "crabllm-proxy"
-version = "0.0.12"
+version = "0.0.14"
 dependencies = [
  "axum",
  "bytes",
@@ -1456,7 +1457,7 @@ checksum = "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77"
 
 [[package]]
 name = "llamars"
-version = "0.0.12"
+version = "0.0.14"
 dependencies = [
  "axum",
  "clap",

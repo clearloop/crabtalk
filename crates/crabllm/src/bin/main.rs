@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use crabllm_core::{Extension, GatewayConfig, Storage};
-use crabllm_provider::ProviderRegistry;
+use crabllm_provider::{ProviderRegistry, RemoteProvider};
 use crabllm_proxy::{
     AppState,
     ext::{
@@ -211,13 +211,14 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
         }
     };
 
-    let registry = match ProviderRegistry::from_config(&config) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("error: failed to build provider registry: {e}");
-            std::process::exit(1);
-        }
-    };
+    let registry: ProviderRegistry<RemoteProvider> =
+        match ProviderRegistry::from_config(&config, |r| r) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("error: failed to build provider registry: {e}");
+                std::process::exit(1);
+            }
+        };
 
     let storage_kind = config
         .storage
@@ -278,7 +279,7 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
 
 async fn run<S: Storage + 'static>(
     config: GatewayConfig,
-    registry: ProviderRegistry,
+    registry: ProviderRegistry<RemoteProvider>,
     storage: Arc<S>,
 ) {
     let (extensions, mut admin_routes) =
@@ -331,12 +332,8 @@ async fn run<S: Storage + 'static>(
         ));
     }
 
-    let state = AppState {
+    let state: AppState<S, RemoteProvider> = AppState {
         registry,
-        client: reqwest::Client::builder()
-            .tcp_nodelay(true)
-            .build()
-            .expect("failed to build HTTP client"),
         config,
         extensions: Arc::new(extensions),
         storage,
