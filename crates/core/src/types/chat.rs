@@ -243,6 +243,18 @@ impl Message {
     pub fn system(content: impl Into<String>) -> Self {
         Self::with_role(Role::System, content)
     }
+
+    /// Build a `Message` with role `Tool`, setting `tool_call_id` and `name`.
+    pub fn tool(
+        tool_call_id: impl Into<String>,
+        name: impl Into<String>,
+        content: impl Into<String>,
+    ) -> Self {
+        let mut msg = Self::with_role(Role::Tool, content);
+        msg.tool_call_id = Some(tool_call_id.into());
+        msg.name = Some(name.into());
+        msg
+    }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
