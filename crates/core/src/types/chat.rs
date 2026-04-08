@@ -323,6 +323,31 @@ pub struct Choice {
     pub logprobs: Option<serde_json::Value>,
 }
 
+impl ChatCompletionResponse {
+    /// Text content from the first choice's message, if present.
+    pub fn content(&self) -> Option<&str> {
+        self.choices.first()?.message.content_str()
+    }
+
+    /// Reasoning content from the first choice's message, if present.
+    pub fn reasoning_content(&self) -> Option<&str> {
+        self.choices.first()?.message.reasoning_content.as_deref()
+    }
+
+    /// Tool calls from the first choice's message. Empty slice if none.
+    pub fn tool_calls(&self) -> &[ToolCall] {
+        self.choices
+            .first()
+            .and_then(|c| c.message.tool_calls.as_deref())
+            .unwrap_or(&[])
+    }
+
+    /// Finish reason from the first choice, if present.
+    pub fn finish_reason(&self) -> Option<&FinishReason> {
+        self.choices.first()?.finish_reason.as_ref()
+    }
+}
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Usage {
     pub prompt_tokens: u32,
@@ -355,6 +380,31 @@ pub struct ChatCompletionChunk {
     pub usage: Option<Usage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_fingerprint: Option<String>,
+}
+
+impl ChatCompletionChunk {
+    /// Text delta from the first choice, if present.
+    pub fn content(&self) -> Option<&str> {
+        self.choices.first()?.delta.content.as_deref()
+    }
+
+    /// Reasoning-content delta from the first choice, if present.
+    pub fn reasoning_content(&self) -> Option<&str> {
+        self.choices.first()?.delta.reasoning_content.as_deref()
+    }
+
+    /// Tool-call deltas from the first choice. Empty slice if none.
+    pub fn tool_calls(&self) -> &[ToolCallDelta] {
+        self.choices
+            .first()
+            .and_then(|c| c.delta.tool_calls.as_deref())
+            .unwrap_or(&[])
+    }
+
+    /// Finish reason from the first choice, if present.
+    pub fn finish_reason(&self) -> Option<&FinishReason> {
+        self.choices.first()?.finish_reason.as_ref()
+    }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
