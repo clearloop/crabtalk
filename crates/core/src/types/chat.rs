@@ -255,6 +255,13 @@ impl Message {
         msg.name = Some(name.into());
         msg
     }
+
+    /// Return the text view of `content` when it is a JSON string.
+    ///
+    /// Returns `None` for `null` and non-string variants (e.g. multimodal arrays).
+    pub fn content_str(&self) -> Option<&str> {
+        self.content.as_ref().and_then(serde_json::Value::as_str)
+    }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
