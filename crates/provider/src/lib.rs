@@ -10,6 +10,14 @@ pub use registry::{Deployment, ProviderRegistry};
 mod provider;
 mod registry;
 
+/// Exposed so `crabllm-llamacpp` can reuse the OpenAI-compatible HTTP
+/// helpers against the child llama-server process. Append-only surface —
+/// add a re-export here only when a local backend actually needs the
+/// function.
+pub mod openai_client {
+    pub use crate::provider::openai::{chat_completion, chat_completion_stream, embedding};
+}
+
 /// A configured remote-API provider, ready to dispatch requests.
 ///
 /// Each variant carries a `reqwest::Client` so the provider trait

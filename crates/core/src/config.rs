@@ -45,6 +45,38 @@ pub struct GatewayConfig {
     /// Graceful shutdown timeout in seconds. Default: 30.
     #[serde(default = "default_shutdown_timeout")]
     pub shutdown_timeout: u64,
+    /// Optional llama.cpp local backend configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub llamacpp: Option<LlamaCppGatewayConfig>,
+}
+
+/// Gateway-level configuration for the llama.cpp local backend.
+///
+/// The `models` list determines which model names are registered for the
+/// llama.cpp provider. Each entry is either an Ollama-registry model name
+/// (`qwen2.5:0.5b`) or a filesystem path to a GGUF file. The pool spawns
+/// a separate `llama-server` subprocess per model on first request and
+/// evicts idle servers after `idle_timeout_secs`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LlamaCppGatewayConfig {
+    /// Model names or GGUF paths to serve.
+    #[serde(default)]
+    pub models: Vec<String>,
+    /// Idle timeout for the per-model server pool, in seconds. Default: 1800.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_timeout_secs: Option<u64>,
+    /// Number of GPU layers to offload. Default: 999 (auto).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_gpu_layers: Option<u32>,
+    /// Context size in tokens. Default: 4096.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_ctx: Option<u32>,
+    /// Number of inference threads. Default: system-chosen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_threads: Option<u32>,
+    /// Override for the GGUF cache directory. Defaults to `~/.crabtalk/models`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_dir: Option<String>,
 }
 
 /// Configuration for a single LLM provider.
