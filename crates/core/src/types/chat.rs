@@ -243,6 +243,29 @@ impl Message {
     pub fn system(content: impl Into<String>) -> Self {
         Self::with_role(Role::System, content)
     }
+
+    /// Build a `Message` with role `Tool`, setting `tool_call_id` and `name`.
+    pub fn tool(
+        tool_call_id: impl Into<String>,
+        name: impl Into<String>,
+        content: impl Into<String>,
+    ) -> Self {
+        let mut msg = Self::with_role(Role::Tool, content);
+        msg.tool_call_id = Some(tool_call_id.into());
+        msg.name = Some(name.into());
+        msg
+    }
+
+    /// Return the text view of `content` when it is a non-empty JSON string.
+    ///
+    /// Returns `None` for `null`, empty strings, and non-string variants
+    /// (e.g. multimodal arrays).
+    pub fn content_str(&self) -> Option<&str> {
+        self.content
+            .as_ref()
+            .and_then(serde_json::Value::as_str)
+            .filter(|s| !s.is_empty())
+    }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -304,6 +327,45 @@ pub struct Choice {
     pub logprobs: Option<serde_json::Value>,
 }
 
+impl ChatCompletionResponse {
+    /// First choice's message, if present.
+    pub fn message(&self) -> Option<&Message> {
+        self.choices.first().map(|c| &c.message)
+    }
+
+    /// Text content from the first choice's message, if non-empty.
+    ///
+    /// Empty strings collapse to `None` (via `Message::content_str`).
+    pub fn content(&self) -> Option<&str> {
+        self.choices.first()?.message.content_str()
+    }
+
+    /// Reasoning content from the first choice's message, if non-empty.
+    ///
+    /// Empty strings collapse to `None`.
+    pub fn reasoning_content(&self) -> Option<&str> {
+        self.choices
+            .first()?
+            .message
+            .reasoning_content
+            .as_deref()
+            .filter(|s| !s.is_empty())
+    }
+
+    /// Tool calls from the first choice's message. Empty slice if none.
+    pub fn tool_calls(&self) -> &[ToolCall] {
+        self.choices
+            .first()
+            .and_then(|c| c.message.tool_calls.as_deref())
+            .unwrap_or(&[])
+    }
+
+    /// Finish reason from the first choice, if present.
+    pub fn finish_reason(&self) -> Option<&FinishReason> {
+        self.choices.first()?.finish_reason.as_ref()
+    }
+}
+
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Usage {
     pub prompt_tokens: u32,
@@ -336,6 +398,45 @@ pub struct ChatCompletionChunk {
     pub usage: Option<Usage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_fingerprint: Option<String>,
+}
+
+impl ChatCompletionChunk {
+    /// Text delta from the first choice, if non-empty.
+    ///
+    /// Empty-string deltas (keepalives, boundary markers) collapse to `None`.
+    pub fn content(&self) -> Option<&str> {
+        self.choices
+            .first()?
+            .delta
+            .content
+            .as_deref()
+            .filter(|s| !s.is_empty())
+    }
+
+    /// Reasoning-content delta from the first choice, if non-empty.
+    ///
+    /// Empty-string deltas collapse to `None`.
+    pub fn reasoning_content(&self) -> Option<&str> {
+        self.choices
+            .first()?
+            .delta
+            .reasoning_content
+            .as_deref()
+            .filter(|s| !s.is_empty())
+    }
+
+    /// Tool-call deltas from the first choice. Empty slice if none.
+    pub fn tool_calls(&self) -> &[ToolCallDelta] {
+        self.choices
+            .first()
+            .and_then(|c| c.delta.tool_calls.as_deref())
+            .unwrap_or(&[])
+    }
+
+    /// Finish reason from the first choice, if present.
+    pub fn finish_reason(&self) -> Option<&FinishReason> {
+        self.choices.first()?.finish_reason.as_ref()
+    }
 }
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
