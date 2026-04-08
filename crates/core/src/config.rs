@@ -23,6 +23,7 @@ pub struct GatewayConfig {
     /// Address to listen on, e.g. "0.0.0.0:8080".
     pub listen: String,
     /// Named provider configurations.
+    #[serde(default)]
     pub providers: HashMap<String, ProviderConfig>,
     /// Virtual API keys for client authentication.
     #[serde(default)]
@@ -45,6 +46,38 @@ pub struct GatewayConfig {
     /// Graceful shutdown timeout in seconds. Default: 30.
     #[serde(default = "default_shutdown_timeout")]
     pub shutdown_timeout: u64,
+    /// Optional llama.cpp local backend configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub llamacpp: Option<LlamaCppGatewayConfig>,
+}
+
+/// Gateway-level configuration for the llama.cpp local backend.
+///
+/// The `models` list determines which model names are registered for the
+/// llama.cpp provider. Each entry is either an Ollama-registry model name
+/// (`qwen2.5:0.5b`) or a filesystem path to a GGUF file. The pool spawns
+/// a separate `llama-server` subprocess per model on first request and
+/// evicts idle servers after `idle_timeout_secs`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct LlamaCppGatewayConfig {
+    /// Model names or GGUF paths to serve.
+    #[serde(default)]
+    pub models: Vec<String>,
+    /// Idle timeout for the per-model server pool, in seconds. Default: 1800.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_timeout_secs: Option<u64>,
+    /// Number of GPU layers to offload. Default: 999 (auto).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_gpu_layers: Option<u32>,
+    /// Context size in tokens. Default: 4096.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_ctx: Option<u32>,
+    /// Number of inference threads. Default: system-chosen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub n_threads: Option<u32>,
+    /// Override for the GGUF cache directory. Defaults to `~/.crabtalk/models`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_dir: Option<String>,
 }
 
 /// Configuration for a single LLM provider.
@@ -87,18 +120,6 @@ pub struct ProviderConfig {
     /// AWS secret access key for Bedrock provider.
     #[serde(default, skip_serializing)]
     pub secret_key: Option<String>,
-    /// Path to a GGUF model file for the LlamaCpp provider.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model_path: Option<String>,
-    /// Number of GPU layers to offload (LlamaCpp). Default: 0 (CPU only).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub n_gpu_layers: Option<u32>,
-    /// Context size in tokens (LlamaCpp). Default: 2048.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub n_ctx: Option<u32>,
-    /// Number of threads for inference (LlamaCpp). Default: system-chosen.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub n_threads: Option<u32>,
 }
 
 fn default_shutdown_timeout() -> u64 {
@@ -116,8 +137,6 @@ pub enum ProviderKind {
     Bedrock,
     Ollama,
     Azure,
-    #[serde(alias = "llama_cpp")]
-    LlamaCpp,
 }
 
 impl ProviderKind {
@@ -171,20 +190,6 @@ impl ProviderConfig {
             ProviderKind::Ollama => {
                 // Ollama doesn't require api_key or base_url.
             }
-            ProviderKind::LlamaCpp => match &self.model_path {
-                None => {
-                    return Err(format!(
-                        "provider '{provider_name}' (llamacpp) requires model_path"
-                    ));
-                }
-                Some(path) => {
-                    if !std::path::Path::new(path).exists() {
-                        return Err(format!(
-                            "provider '{provider_name}' (llamacpp): model_path '{path}' does not exist"
-                        ));
-                    }
-                }
-            },
             _ => {
                 if self.api_key.is_none() && self.base_url.is_none() {
                     return Err(format!(
@@ -231,6 +236,28 @@ impl GatewayConfig {
     pub fn from_file(path: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
         let raw = std::fs::read_to_string(path)?;
         let expanded = expand_env_vars(&raw);
+
+        // Pre-parse as a generic toml::Value so we can surface a clear
+        // migration error for the removed `kind = "llamacpp"` provider
+        // variant before the typed deserialize turns it into a cryptic
+        // "unknown variant" error.
+        let raw_value: toml::Value = toml::from_str(&expanded)?;
+        if let Some(providers) = raw_value.get("providers").and_then(|v| v.as_table()) {
+            for (name, entry) in providers {
+                if let Some(kind) = entry.get("kind").and_then(|v| v.as_str())
+                    && (kind == "llamacpp" || kind == "llama_cpp")
+                {
+                    return Err(format!(
+                        "provider '{name}' uses kind = '{kind}', which is no longer supported. \
+                         Move llama.cpp configuration to a top-level [llamacpp] section. \
+                         Each model becomes an entry in llamacpp.models; pool-wide settings \
+                         (n_ctx, n_gpu_layers, n_threads, idle_timeout_secs) live under [llamacpp]."
+                    )
+                    .into());
+                }
+            }
+        }
+
         let config: GatewayConfig = toml::from_str(&expanded)?;
         Ok(config)
     }
