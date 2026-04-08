@@ -48,8 +48,7 @@ impl Provider for LlamaCppProvider {
         request: &ChatCompletionRequest,
     ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
         let base_url = self.pool.ensure_running(&request.model).await?;
-        let s =
-            openai_client::chat_completion_stream(&self.client, &base_url, "", request).await?;
+        let s = openai_client::chat_completion_stream(&self.client, &base_url, "", request).await?;
         Ok(s.boxed())
     }
 
