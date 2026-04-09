@@ -408,7 +408,7 @@ dependencies = [
 
 [[package]]
 name = "crabllm"
-version = "0.0.14"
+version = "0.0.15"
 dependencies = [
  "axum",
  "bytes",
@@ -425,7 +425,7 @@ dependencies = [
 
 [[package]]
 name = "crabllm-bench"
-version = "0.0.14"
+version = "0.0.15"
 dependencies = [
  "axum",
  "clap",
@@ -438,7 +438,7 @@ dependencies = [
 
 [[package]]
 name = "crabllm-core"
-version = "0.0.14"
+version = "0.0.15"
 dependencies = [
  "bytes",
  "futures-core",
@@ -449,7 +449,7 @@ dependencies = [
 
 [[package]]
 name = "crabllm-llamacpp"
-version = "0.0.14"
+version = "0.0.15"
 dependencies = [
  "axum",
  "clap",
@@ -472,8 +472,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "crabllm-mlx"
+version = "0.0.15"
+dependencies = [
+ "crabllm-core",
+]
+
+[[package]]
 name = "crabllm-provider"
-version = "0.0.14"
+version = "0.0.15"
 dependencies = [
  "bytes",
  "crabllm-core",
@@ -489,7 +496,7 @@ dependencies = [
 
 [[package]]
 name = "crabllm-proxy"
-version = "0.0.14"
+version = "0.0.15"
 dependencies = [
  "axum",
  "bytes",
