@@ -75,6 +75,9 @@ fn main() {
         println!("cargo:warning=strip -S -x failed on {}", lib_path.display());
     }
 
+    // Generate the model registry from mlx-swift-lm's LLMModelFactory.
+    generate_model_registry(&mlx_dir);
+
     // Compile Metal shaders into a metallib and write it to OUT_DIR
     // so Rust can embed it via include_bytes!. MLX's C++ runtime
     // searches for `mlx.metallib` colocated with the binary — our
@@ -265,6 +268,79 @@ fn compile_metallib(mlx_dir: &Path) {
     }
 
     println!("cargo:rustc-env=MLX_METALLIB_PATH={}", metallib.display());
+}
+
+/// Parse `LLMModelFactory.swift` and generate a Rust registry of
+/// supported models at `$OUT_DIR/model_registry.rs`.
+fn generate_model_registry(mlx_dir: &Path) {
+    let factory_path =
+        mlx_dir.join(".build/checkouts/mlx-swift-lm/Libraries/MLXLLM/LLMModelFactory.swift");
+    let source = match fs::read_to_string(&factory_path) {
+        Ok(s) => s,
+        Err(e) => {
+            println!("cargo:warning=cannot read LLMModelFactory.swift: {e}");
+            return;
+        }
+    };
+    println!("cargo:rerun-if-changed={}", factory_path.display());
+
+    // Parse entries like:
+    //   static public let foo = ModelConfiguration(
+    //       id: "mlx-community/Some-Model-4bit",
+    //       defaultPrompt: "Hello"
+    //   )
+    let mut entries = Vec::new();
+    let lines: Vec<&str> = source.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i].trim();
+        if line.starts_with("static public let") && line.contains("ModelConfiguration(") {
+            let mut id = String::new();
+            let mut prompt = String::new();
+            // Scan the next few lines for id: and defaultPrompt:
+            for l in lines[i..std::cmp::min(i + 8, lines.len())]
+                .iter()
+                .map(|l| l.trim())
+            {
+                if let Some(rest) = l.strip_prefix("id: \"").and_then(|r| r.split('"').next()) {
+                    id = rest.to_string();
+                }
+                if let Some(rest) = l
+                    .strip_prefix("defaultPrompt: \"")
+                    .and_then(|r| r.rfind('"').map(|end| &r[..end]))
+                {
+                    prompt = rest.to_string();
+                }
+            }
+            if !id.is_empty() {
+                // Derive a short alias from the HF repo name:
+                // "mlx-community/Qwen3.5-2B-MLX-4bit" → "qwen3.5-2b-mlx-4bit"
+                let alias = id
+                    .strip_prefix("mlx-community/")
+                    .unwrap_or(&id)
+                    .to_lowercase();
+                entries.push((alias, id, prompt));
+            }
+        }
+        i += 1;
+    }
+
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
+    let mut code = String::from(
+        "/// Auto-generated from mlx-swift-lm's LLMModelFactory.swift.\n\
+         /// Each entry: (alias, hf_repo_id, default_prompt).\n\
+         pub const MODEL_REGISTRY: &[(&str, &str, &str)] = &[\n",
+    );
+    for (alias, id, prompt) in &entries {
+        let escaped_prompt = prompt.replace('\\', "\\\\").replace('"', "\\\"");
+        code.push_str(&format!(
+            "    (\"{alias}\", \"{id}\", \"{escaped_prompt}\"),\n"
+        ));
+    }
+    code.push_str("];\n");
+
+    let registry_path = out_dir.join("model_registry.rs");
+    fs::write(&registry_path, &code).expect("write model_registry.rs");
 }
 
 /// True if the current target is an iOS simulator (not a device). We

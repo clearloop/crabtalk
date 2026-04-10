@@ -23,8 +23,13 @@ use std::{
 #[derive(Parser)]
 #[command(name = "chat", about = "Interactive MLX chat")]
 struct Cli {
-    /// Model name: HuggingFace repo id or local directory path.
-    model: String,
+    /// Model name: alias, HuggingFace repo id, or local directory path.
+    /// Use --list to see available aliases.
+    model: Option<String>,
+
+    /// List all predefined models and exit.
+    #[arg(long)]
+    list: bool,
 
     /// Idle timeout in seconds for the model pool (default: 1800).
     #[arg(long, default_value = "1800")]
@@ -42,6 +47,20 @@ async fn main() {
 
     let cli = Cli::parse();
 
+    if cli.list {
+        let models = crabllm_mlx::registry::list();
+        eprintln!("{} predefined models:\n", models.len());
+        for m in &models {
+            println!("{:<45} {}", m.alias, m.repo_id);
+        }
+        return;
+    }
+
+    let Some(model) = cli.model else {
+        eprintln!("error: model name required. Use --list to see available models.");
+        std::process::exit(1);
+    };
+
     let pool = match MlxPool::new(cli.idle_timeout) {
         Ok(p) => Arc::new(p),
         Err(e) => {
@@ -52,13 +71,13 @@ async fn main() {
     let provider = MlxProvider::new(pool);
     let mut history: Vec<Message> = Vec::new();
 
-    eprintln!("model: {}", cli.model);
+    eprintln!("model: {}", model);
     eprintln!("loading model (first run downloads from HuggingFace)...");
 
     // Warm up: trigger the download + model load before the REPL so
     // the user sees progress instead of a blank hang on first message.
     let warmup = ChatCompletionRequest {
-        model: cli.model.clone(),
+        model: model.clone(),
         messages: vec![Message::user("hi")],
         temperature: None,
         top_p: None,
@@ -104,7 +123,7 @@ async fn main() {
         history.push(Message::user(line));
 
         let request = ChatCompletionRequest {
-            model: cli.model.clone(),
+            model: model.clone(),
             messages: history.clone(),
             temperature: Some(0.7),
             top_p: None,

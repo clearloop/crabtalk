@@ -19,6 +19,7 @@
 //! `Error::not_implemented`.
 
 pub mod download;
+pub mod registry;
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod ffi;

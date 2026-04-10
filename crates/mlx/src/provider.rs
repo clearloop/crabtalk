@@ -43,21 +43,27 @@ impl MlxProvider {
         Self { pool }
     }
 
-    /// Resolve a model name to a local directory path. If it's already
-    /// a directory, use it. Otherwise treat it as a HuggingFace repo id
-    /// and download via `hf-hub` (respects `$HF_TOKEN`, `$HF_ENDPOINT`).
+    /// Resolve a model name to a local directory path.
+    ///
+    /// Accepts: local directory path, full HF repo id, or a registry
+    /// alias (e.g. `"qwen3.5-2b-mlx-4bit"`). Downloads via `hf-hub`
+    /// if not cached.
     async fn resolve_model_dir(&self, model_id: &str) -> Result<PathBuf, Error> {
         let as_path = Path::new(model_id);
         if as_path.exists() && as_path.is_dir() {
             return Ok(as_path.to_path_buf());
         }
 
-        if let Some(cached) = download::cached_model_path(model_id) {
+        // Resolve alias → full repo id via the registry.
+        let repo_id = crate::registry::resolve(model_id)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| model_id.to_string());
+
+        if let Some(cached) = download::cached_model_path(&repo_id) {
             return Ok(cached);
         }
 
-        let repo = model_id.to_string();
-        tokio::task::spawn_blocking(move || download::download_model(&repo))
+        tokio::task::spawn_blocking(move || download::download_model(&repo_id))
             .await
             .map_err(|e| Error::Internal(format!("mlx: download task panicked: {e}")))?
     }
