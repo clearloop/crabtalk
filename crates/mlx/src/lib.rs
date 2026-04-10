@@ -42,4 +42,4 @@ mod stub;
 #[cfg(not(any(target_os = "macos", target_os = "ios")))]
 pub use stub::{MlxPool, MlxProvider};
 
-pub use download::{cached_model_path, download_model};
+pub use download::{DownloadEvent, cached_model_path, download_model};

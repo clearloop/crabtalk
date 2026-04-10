@@ -1,19 +1,16 @@
 //! Interactive chat with a local MLX model.
 //!
 //! Usage:
+//!   cargo run -p crabllm-mlx --example chat -- qwen3-4b-4bit
 //!   cargo run -p crabllm-mlx --example chat -- mlx-community/Qwen3.5-2B-MLX-4bit
-//!   cargo run -p crabllm-mlx --example chat -- /path/to/cached/model
+//!   cargo run -p crabllm-mlx --example chat -- --list
 //!
-//! The first run downloads the model from HuggingFace (may take a few
-//! minutes depending on model size and network speed). Subsequent runs
-//! load from cache instantly.
-//!
-//! Type a message and press Enter. The model streams its response
-//! token by token. Type `exit` or Ctrl-C to quit.
+//! Downloads the model on first run (with progress), then loads from
+//! cache. Type a message and press Enter. `exit` or Ctrl-C to quit.
 
 use clap::Parser;
 use crabllm_core::{ChatCompletionRequest, Message, Provider};
-use crabllm_mlx::{MlxPool, MlxProvider};
+use crabllm_mlx::{DownloadEvent, MlxPool, MlxProvider};
 use futures::StreamExt;
 use std::{
     io::{self, BufRead, Write},
@@ -24,7 +21,6 @@ use std::{
 #[command(name = "chat", about = "Interactive MLX chat")]
 struct Cli {
     /// Model name: alias, HuggingFace repo id, or local directory path.
-    /// Use --list to see available aliases.
     model: Option<String>,
 
     /// List all predefined models and exit.
@@ -36,9 +32,68 @@ struct Cli {
     idle_timeout: u64,
 }
 
+/// Ensure the model is downloaded, showing progress on stderr.
+fn ensure_downloaded(model: &str) {
+    // Resolve alias to repo id.
+    let repo_id = crabllm_mlx::registry::resolve(model)
+        .unwrap_or(model)
+        .to_string();
+
+    // Already cached?
+    if std::path::Path::new(model).is_dir() || crabllm_mlx::cached_model_path(&repo_id).is_some() {
+        return;
+    }
+
+    eprintln!("downloading {repo_id}...");
+    let (tx, rx) = std::sync::mpsc::channel();
+    let repo = repo_id.clone();
+    let handle = std::thread::spawn(move || crabllm_mlx::download_model(&repo, &tx));
+
+    // Print progress on the main thread.
+    let mut current_file = String::new();
+    let mut file_total: usize = 0;
+    let mut file_downloaded: usize = 0;
+    for event in rx {
+        match event {
+            DownloadEvent::FileStart {
+                filename,
+                total_bytes,
+            } => {
+                current_file = filename;
+                file_total = total_bytes;
+                file_downloaded = 0;
+            }
+            DownloadEvent::FileProgress { bytes } => {
+                file_downloaded += bytes;
+                if file_total > 0 {
+                    let pct = file_downloaded * 100 / file_total;
+                    let mb = file_downloaded / (1024 * 1024);
+                    let total_mb = file_total / (1024 * 1024);
+                    eprint!("\r  {current_file}: {mb}/{total_mb} MB ({pct}%)    ");
+                }
+            }
+            DownloadEvent::FileDone => {
+                eprintln!("\r  {current_file}: done                              ");
+            }
+            DownloadEvent::AllDone { .. } => {}
+        }
+    }
+
+    match handle.join() {
+        Ok(Ok(_)) => eprintln!("download complete."),
+        Ok(Err(e)) => {
+            eprintln!("download failed: {e}");
+            std::process::exit(1);
+        }
+        Err(_) => {
+            eprintln!("download thread panicked");
+            std::process::exit(1);
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() {
-    // Default to info-level logging so download progress is visible.
     if std::env::var("RUST_LOG").is_err() {
         // SAFETY: called before any threads are spawned.
         unsafe { std::env::set_var("RUST_LOG", "info") };
@@ -61,6 +116,10 @@ async fn main() {
         std::process::exit(1);
     };
 
+    // Step 1: ensure downloaded (with progress).
+    ensure_downloaded(&model);
+
+    // Step 2: create pool + provider.
     let pool = match MlxPool::new(cli.idle_timeout) {
         Ok(p) => Arc::new(p),
         Err(e) => {
@@ -71,11 +130,7 @@ async fn main() {
     let provider = MlxProvider::new(pool);
     let mut history: Vec<Message> = Vec::new();
 
-    eprintln!("model: {}", model);
-    eprintln!("loading model (first run downloads from HuggingFace)...");
-
-    // Warm up: trigger the download + model load before the REPL so
-    // the user sees progress instead of a blank hang on first message.
+    eprintln!("loading model...");
     let warmup = ChatCompletionRequest {
         model: model.clone(),
         messages: vec![Message::user("hi")],
@@ -96,7 +151,7 @@ async fn main() {
     match provider.chat_completion(&warmup).await {
         Ok(_) => eprintln!("model loaded.\n"),
         Err(e) => {
-            eprintln!("error: failed to load model: {e}");
+            eprintln!("error: {e}");
             std::process::exit(1);
         }
     }

@@ -3,8 +3,8 @@
 //! The multi-model cache, idle eviction, and model lifecycle all live
 //! in Swift (see `mlx/Sources/CrabllmMlx/Pool.swift`). This module is
 //! a thin Rust shim that:
-//!   1. Resolves the model name to a local directory (downloading from
-//!      HuggingFace if needed).
+//!   1. Resolves the model name to a cached local directory (errors
+//!      if not downloaded — use `download::download_model` first).
 //!   2. Calls the Swift pool FFI via `spawn_blocking`.
 //!   3. Reassembles the results into OpenAI-shape types.
 //!
@@ -46,26 +46,23 @@ impl MlxProvider {
     /// Resolve a model name to a local directory path.
     ///
     /// Accepts: local directory path, full HF repo id, or a registry
-    /// alias (e.g. `"qwen3.5-2b-mlx-4bit"`). Downloads via `hf-hub`
-    /// if not cached.
-    async fn resolve_model_dir(&self, model_id: &str) -> Result<PathBuf, Error> {
+    /// alias. Does NOT auto-download — returns an error if the model
+    /// is not cached. Use [`download::download_model`] to download
+    /// explicitly before calling the provider.
+    fn resolve_model_dir(&self, model_id: &str) -> Result<PathBuf, Error> {
         let as_path = Path::new(model_id);
         if as_path.exists() && as_path.is_dir() {
             return Ok(as_path.to_path_buf());
         }
 
-        // Resolve alias → full repo id via the registry.
-        let repo_id = crate::registry::resolve(model_id)
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| model_id.to_string());
+        let repo_id = crate::registry::resolve(model_id).unwrap_or(model_id);
 
-        if let Some(cached) = download::cached_model_path(&repo_id) {
-            return Ok(cached);
-        }
-
-        tokio::task::spawn_blocking(move || download::download_model(&repo_id))
-            .await
-            .map_err(|e| Error::Internal(format!("mlx: download task panicked: {e}")))?
+        download::cached_model_path(repo_id).ok_or_else(|| {
+            Error::Internal(format!(
+                "mlx: model not downloaded: {repo_id}. \
+                 Use download::download_model() first."
+            ))
+        })
     }
 }
 
@@ -74,7 +71,7 @@ impl Provider for MlxProvider {
         &self,
         request: &ChatCompletionRequest,
     ) -> Result<ChatCompletionResponse, Error> {
-        let model_dir = self.resolve_model_dir(&request.model).await?;
+        let model_dir = self.resolve_model_dir(&request.model)?;
         let model_dir_str = model_dir.to_string_lossy().to_string();
         let messages_json = serialize_messages(&request.messages)?;
         let tools_json = serialize_tools(request)?;
@@ -140,7 +137,7 @@ impl Provider for MlxProvider {
         &self,
         request: &ChatCompletionRequest,
     ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
-        let model_dir = self.resolve_model_dir(&request.model).await?;
+        let model_dir = self.resolve_model_dir(&request.model)?;
         let model_dir_str = model_dir.to_string_lossy().to_string();
         let messages_json = serialize_messages(&request.messages)?;
         let tools_json = serialize_tools(request)?;

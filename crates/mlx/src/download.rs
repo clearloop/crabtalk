@@ -1,10 +1,8 @@
 //! HuggingFace model downloader backed by the `hf-hub` crate.
-//!
-//! Delegates authentication (`$HF_TOKEN`), endpoint selection
-//! (`$HF_ENDPOINT`), cache management, and file download to `hf-hub`.
 
 use crabllm_core::Error;
-use hf_hub::api::sync::ApiBuilder;
+use hf_hub::api::Progress;
+use hf_hub::api::sync::{Api, ApiBuilder};
 use std::path::PathBuf;
 
 /// File name suffixes matched by the wildcard part of the allowlist.
@@ -25,20 +23,15 @@ const ALLOWED_EXACT: &[&str] = &[
     "model.safetensors.index.json",
 ];
 
-fn build_api() -> Result<hf_hub::api::sync::Api, Error> {
+fn build_api() -> Result<Api, Error> {
     ApiBuilder::from_env()
         .build()
         .map_err(|e| Error::Internal(format!("mlx: failed to build HF API client: {e}")))
 }
 
-/// Check whether a model is already cached. Uses hf-hub's `get` which
-/// returns the cached path without downloading if the file exists.
-/// Returns `None` on any error (network misconfigured, not cached, etc.)
-/// so callers fall through to a fresh download.
+/// Check whether a model is already cached. Returns the snapshot
+/// directory if `config.json` is present.
 pub fn cached_model_path(repo: &str) -> Option<PathBuf> {
-    // Cache::default() reads $HF_HOME but does not need network access.
-    // We build a minimal Api just for the cache lookup — hf-hub's `get`
-    // returns instantly for already-cached files.
     let api = build_api().ok()?;
     let repo_handle = api.model(repo.to_string());
     repo_handle
@@ -47,15 +40,35 @@ pub fn cached_model_path(repo: &str) -> Option<PathBuf> {
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
 }
 
-/// Download all mlx-compatible files from a HuggingFace repo.
-/// Returns the local snapshot directory.
+/// Per-file progress event.
+#[derive(Debug, Clone)]
+pub enum DownloadEvent {
+    /// A new file started downloading. `total_bytes` is the file size.
+    FileStart {
+        filename: String,
+        total_bytes: usize,
+    },
+    /// `bytes` more bytes have been written for the current file.
+    FileProgress { bytes: usize },
+    /// The current file finished downloading.
+    FileDone,
+    /// All files finished. `model_dir` is the local path.
+    AllDone { model_dir: PathBuf },
+}
+
+/// Download all mlx-compatible files from a HuggingFace repo,
+/// reporting progress through a `tokio::sync::mpsc` channel.
 ///
 /// Blocking. tokio callers must wrap in `spawn_blocking`.
-pub fn download_model(repo: &str) -> Result<PathBuf, Error> {
+///
+/// Returns the local snapshot directory on success.
+pub fn download_model(
+    repo: &str,
+    tx: &std::sync::mpsc::Sender<DownloadEvent>,
+) -> Result<PathBuf, Error> {
     let api = build_api()?;
     let repo_handle = api.model(repo.to_string());
 
-    tracing::info!(repo, "mlx: fetching model info");
     let info = repo_handle
         .info()
         .map_err(|e| Error::Internal(format!("mlx: model info for {repo}: {e}")))?;
@@ -75,16 +88,46 @@ pub fn download_model(repo: &str) -> Result<PathBuf, Error> {
 
     let mut model_dir: Option<PathBuf> = None;
     for filename in &wanted {
-        tracing::info!(file = %filename, "mlx: downloading");
+        let progress = ChannelProgress {
+            tx: tx.clone(),
+            filename: filename.to_string(),
+        };
         let path = repo_handle
-            .get(filename)
+            .download_with_progress(filename, progress)
             .map_err(|e| Error::Internal(format!("mlx: download {filename}: {e}")))?;
         if model_dir.is_none() {
             model_dir = path.parent().map(|p| p.to_path_buf());
         }
     }
 
-    model_dir.ok_or_else(|| Error::Internal("mlx: no files downloaded".to_string()))
+    let dir = model_dir.ok_or_else(|| Error::Internal("mlx: no files downloaded".to_string()))?;
+    let _ = tx.send(DownloadEvent::AllDone {
+        model_dir: dir.clone(),
+    });
+    Ok(dir)
+}
+
+/// Adapter from hf-hub's `Progress` trait to our channel-based events.
+struct ChannelProgress {
+    tx: std::sync::mpsc::Sender<DownloadEvent>,
+    filename: String,
+}
+
+impl Progress for ChannelProgress {
+    fn init(&mut self, size: usize, _filename: &str) {
+        let _ = self.tx.send(DownloadEvent::FileStart {
+            filename: self.filename.clone(),
+            total_bytes: size,
+        });
+    }
+
+    fn update(&mut self, size: usize) {
+        let _ = self.tx.send(DownloadEvent::FileProgress { bytes: size });
+    }
+
+    fn finish(&mut self) {
+        let _ = self.tx.send(DownloadEvent::FileDone);
+    }
 }
 
 fn is_wanted_filename(name: &str) -> bool {
