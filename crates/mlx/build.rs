@@ -91,9 +91,69 @@ fn main() {
     println!("cargo:rustc-link-search=native={sdk_path}/usr/lib/swift");
 
     // Foundation pulls in the Swift runtime symbols the static library
-    // references. Phase 5 will additionally need Metal and
-    // MetalPerformanceShaders once mlx-swift-lm is wired in.
+    // references. Metal + MetalPerformanceShaders + Accelerate are
+    // required by mlx-swift (MLX arrays execute on the GPU via Metal
+    // and fall back to Accelerate for some CPU kernels).
     println!("cargo:rustc-link-lib=framework=Foundation");
+    println!("cargo:rustc-link-lib=framework=Metal");
+    println!("cargo:rustc-link-lib=framework=MetalPerformanceShaders");
+    println!("cargo:rustc-link-lib=framework=MetalPerformanceShadersGraph");
+    println!("cargo:rustc-link-lib=framework=Accelerate");
+    // CoreGraphics + CoreImage cover CGSize + CIImage references
+    // dragged in by `UserInput.Processing` / mlx-swift-lm's shared
+    // MLXLMCommon code even when we only ever use MLXLLM.
+    println!("cargo:rustc-link-lib=framework=CoreGraphics");
+    println!("cargo:rustc-link-lib=framework=CoreImage");
+
+    // mlx-swift's C++ core (libCmlx.a) throws exceptions so the final
+    // binary needs the libc++ exception runtime and personality
+    // routine. Rust's default linker invocation does not pull in
+    // libc++; we ask for it explicitly.
+    println!("cargo:rustc-link-lib=dylib=c++");
+
+    // Swift back-deploy compatibility shims live under the *toolchain*
+    // swift lib dir, not the SDK's. We deploy at macOS 14 / iOS 17
+    // which ship the modern runtime, so strictly speaking the
+    // `swiftCompatibility56` / `swiftCompatibilityPacks` shims are
+    // dead code, but the Swift linker still emits references to them
+    // (via `__swift_FORCE_LOAD_$_swiftCompatibility*` force-loads from
+    // transitive deps built against older targets), so we keep them
+    // on the link line. `xcode-select -p` points at the Developer dir;
+    // append the standard toolchain path from there.
+    let dev_output = Command::new("xcode-select")
+        .arg("-p")
+        .output()
+        .expect("failed to run `xcode-select -p`");
+    if !dev_output.status.success() {
+        panic!("`xcode-select -p` failed: {dev_output:?}");
+    }
+    let dev_dir = String::from_utf8(dev_output.stdout)
+        .expect("xcode-select returned non-UTF-8")
+        .trim()
+        .to_string();
+    let toolchain_lib_subdir = match (target_os.as_str(), sim_target()) {
+        ("ios", true) => "iphonesimulator",
+        ("ios", false) => "iphoneos",
+        _ => "macosx",
+    };
+    let toolchain_swift = format!(
+        "{dev_dir}/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/{toolchain_lib_subdir}"
+    );
+    println!("cargo:rustc-link-search=native={toolchain_swift}");
+    println!("cargo:rustc-link-lib=static=swiftCompatibility56");
+    println!("cargo:rustc-link-lib=static=swiftCompatibilityConcurrency");
+    println!("cargo:rustc-link-lib=static=swiftCompatibilityPacks");
+
+    // Runtime rpath for the OS-bundled Swift stdlib. Only applies on
+    // macOS — iOS device and simulator embed the Swift runtime in the
+    // app bundle at `@executable_path/Frameworks/`, and pointing to
+    // a non-existent `/usr/lib/swift` there would ship a broken
+    // binary. The iOS story will be revisited when we actually
+    // produce iOS artifacts; text-only Phase 5 is macOS-only in
+    // practice because nothing drives iOS builds yet.
+    if target_os == "macos" {
+        println!("cargo:rustc-link-arg=-Wl,-rpath,/usr/lib/swift");
+    }
 }
 
 /// True if the current target is an iOS simulator (not a device). We

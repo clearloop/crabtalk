@@ -13,18 +13,29 @@
 .PHONY: build test clean
 
 SWIFT := swift
-CC := clang
+CC := clang++
 SDK := $(shell xcrun --show-sdk-path)
+SWIFT_LIB := /Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/macosx
 SMOKE_BIN := .build/smoke
 
 build:
 	$(SWIFT) build -c release
 
 test: build
-	$(CC) -Wall -Wextra -Werror -o $(SMOKE_BIN) tests/smoke.c \
+	$(CC) -Wall -Wextra -Werror -x c -o $(SMOKE_BIN) tests/smoke.c \
 		-L.build/release -lCrabllmMlx \
 		-L$(SDK)/usr/lib/swift \
-		-framework Foundation
+		-L$(SWIFT_LIB) \
+		-lswiftCompatibility56 \
+		-lswiftCompatibilityConcurrency \
+		-lswiftCompatibilityPacks \
+		-framework Foundation \
+		-framework Metal \
+		-framework MetalPerformanceShaders \
+		-framework MetalPerformanceShadersGraph \
+		-framework Accelerate \
+		-framework CoreGraphics \
+		-framework CoreImage
 	$(SMOKE_BIN)
 
 clean:

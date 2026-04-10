@@ -73,9 +73,15 @@ enum {
 
 /* Sampling / generation knobs. Zero/negative values fall back to Swift-side
  * defaults so the Rust caller can leave request fields unset. Field order
- * is chosen to eliminate padding: 8, 4, 4, 4. */
+ * is chosen to eliminate padding: 8, 4, 4, 4.
+ *
+ * `seed` is currently IGNORED by the mlx-swift-lm 2.31.3 backend —
+ * GenerateParameters has no seed knob. The field is kept in the ABI so
+ * callers can set it and a future MLX version can plumb it through
+ * without breaking layout. Rust callers that rely on deterministic
+ * output should not assume the seed takes effect yet. */
 typedef struct {
-    uint64_t seed;         /* 0 = non-deterministic */
+    uint64_t seed;         /* currently ignored by mlx-swift-lm; see note above */
     uint32_t max_tokens;   /* 0 = Swift default (model max) */
     float temperature;     /* <= 0 = Swift default */
     float top_p;           /* <= 0 = Swift default */
