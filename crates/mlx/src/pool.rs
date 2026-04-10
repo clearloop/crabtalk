@@ -1,186 +1,188 @@
-//! `MlxPool` — on-demand multi-model cache with idle eviction.
+//! `MlxPool` — Rust-side safe wrapper around the Swift pool FFI.
 //!
-//! Mirrors the shape of `crabllm-llamacpp`'s `ServerPool`: a
-//! `HashMap<String, ModelState>` keyed by model name, with
-//! `Starting`/`Ready` states so concurrent callers for the same model
-//! wait on one loader instead of racing.
-//!
-//! Idle eviction runs as a detached background task that wakes every
-//! `MONITOR_INTERVAL` and drops any model whose `last_used` is older
-//! than `idle_timeout`. Dropping an `MlxModel` releases the underlying
-//! `Session` — Swift frees the GPU memory.
+//! The actual multi-model cache, idle eviction, and model loading live
+//! in Swift (see `mlx/Sources/CrabllmMlx/Pool.swift`). This module is
+//! a thin `NonNull` handle with `Send + Sync` and `Drop`.
 
-use crate::model::MlxModel;
+use crate::ffi;
+use crate::session::{
+    OwnedRequest, ResultGuard, copy_c_string_opt, take_owned_c_string, translate_status,
+};
 use crabllm_core::Error;
 use std::{
-    collections::HashMap,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::{Duration, Instant},
+    ffi::{CString, c_char},
+    os::raw::{c_int, c_void},
+    panic, ptr,
 };
-use tokio::sync::{Mutex, Notify};
 
-const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
-const MONITOR_INTERVAL: Duration = Duration::from_secs(60);
-
-enum ModelState {
-    Starting { notify: Arc<Notify> },
-    Ready { model: MlxModel, last_used: Instant },
-}
-
-/// Multi-model manager. Cheap to clone internally via `Arc`.
+/// Handle to a Swift-side multi-model pool.
 pub struct MlxPool {
-    models: Mutex<HashMap<String, ModelState>>,
-    idle_timeout: Duration,
-    shutdown: AtomicBool,
+    inner: ptr::NonNull<ffi::CrabllmMlxPool>,
 }
 
-impl std::fmt::Debug for MlxPool {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MlxPool")
-            .field("idle_timeout", &self.idle_timeout)
-            .finish_non_exhaustive()
-    }
-}
+unsafe impl Send for MlxPool {}
+unsafe impl Sync for MlxPool {}
 
 impl MlxPool {
-    pub fn new() -> Self {
-        Self {
-            models: Mutex::new(HashMap::new()),
-            idle_timeout: DEFAULT_IDLE_TIMEOUT,
-            shutdown: AtomicBool::new(false),
+    /// Create a pool with idle eviction. `idle_timeout_secs == 0` uses
+    /// the Swift default (30 min).
+    pub fn new(idle_timeout_secs: u64) -> Result<Self, Error> {
+        let mut pool_ptr: *mut ffi::CrabllmMlxPool = ptr::null_mut();
+        let mut err_ptr: *mut c_char = ptr::null_mut();
+        let status =
+            unsafe { ffi::crabllm_mlx_pool_new(idle_timeout_secs, &mut pool_ptr, &mut err_ptr) };
+        if status == ffi::CRABLLM_MLX_OK {
+            let inner = ptr::NonNull::new(pool_ptr).ok_or_else(|| {
+                Error::Internal("mlx: pool_new OK but pointer is NULL".to_string())
+            })?;
+            Ok(MlxPool { inner })
+        } else {
+            let msg = unsafe { take_owned_c_string(err_ptr) };
+            Err(translate_status(status, msg))
         }
     }
 
-    /// Override the idle timeout (default: 30 minutes).
-    pub fn with_idle_timeout(mut self, timeout: Duration) -> Self {
-        self.idle_timeout = timeout;
-        self
+    /// Non-streaming generation through the pool.
+    pub fn generate(
+        &self,
+        model_dir: &str,
+        req: &crate::session::GenerateRequest<'_>,
+    ) -> Result<crate::session::GenerateOutput, Error> {
+        let model_c = CString::new(model_dir)
+            .map_err(|_| Error::Internal("mlx: model_dir contains NUL byte".to_string()))?;
+        let owned = OwnedRequest::new(req)?;
+        let mut guard = ResultGuard::zeroed();
+        let status = unsafe {
+            ffi::crabllm_mlx_pool_generate(
+                self.inner.as_ptr(),
+                model_c.as_ptr(),
+                owned.as_raw(),
+                guard.as_mut_ptr(),
+            )
+        };
+        if status == ffi::CRABLLM_MLX_OK {
+            let text = unsafe { copy_c_string_opt(guard.inner.text)? }.ok_or_else(|| {
+                Error::Internal("mlx: pool generate OK but result.text is NULL".to_string())
+            })?;
+            let tool_calls_json = unsafe { copy_c_string_opt(guard.inner.tool_calls_json)? };
+            Ok(crate::session::GenerateOutput {
+                text,
+                tool_calls_json,
+                prompt_tokens: guard.inner.prompt_tokens,
+                completion_tokens: guard.inner.completion_tokens,
+            })
+        } else {
+            let msg = unsafe { copy_c_string_opt(guard.inner.error) }
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "(no error message from Swift)".to_string());
+            Err(translate_status(status, msg))
+        }
     }
 
-    /// Ensure a model is loaded and return a cheap clone.
-    ///
-    /// Per-model serialization: the first caller for a given name
-    /// transitions the slot to `Starting` and kicks off
-    /// [`MlxModel::new`]; concurrent callers for the same name wait
-    /// on a shared `Notify` and re-read the slot afterwards.
-    pub async fn ensure_loaded(&self, model_id: &str) -> Result<MlxModel, Error> {
-        loop {
-            let notify = {
-                let mut models = self.models.lock().await;
-                match models.get_mut(model_id) {
-                    Some(ModelState::Ready { model, last_used }) => {
-                        *last_used = Instant::now();
-                        return Ok(model.clone());
-                    }
-                    Some(ModelState::Starting { notify }) => Arc::clone(notify),
-                    None => {
-                        if self.shutdown.load(Ordering::Relaxed) {
-                            return Err(Error::Internal("mlx pool is shutting down".to_string()));
-                        }
-                        let notify = Arc::new(Notify::new());
-                        models.insert(
-                            model_id.to_string(),
-                            ModelState::Starting {
-                                notify: Arc::clone(&notify),
-                            },
-                        );
-                        drop(models);
-                        return self.load_model(model_id, notify).await;
-                    }
-                }
+    /// Streaming generation through the pool.
+    pub fn generate_stream<F>(
+        &self,
+        model_dir: &str,
+        req: &crate::session::GenerateRequest<'_>,
+        mut on_token: F,
+    ) -> Result<crate::session::StreamOutput, Error>
+    where
+        F: FnMut(&str) -> bool,
+    {
+        let model_c = CString::new(model_dir)
+            .map_err(|_| Error::Internal("mlx: model_dir contains NUL byte".to_string()))?;
+        let owned = OwnedRequest::new(req)?;
+
+        struct TrampolineState<'cb, F: FnMut(&str) -> bool> {
+            cb: &'cb mut F,
+            panicked: bool,
+        }
+
+        extern "C" fn trampoline<F: FnMut(&str) -> bool>(
+            token: *const c_char,
+            user_data: *mut c_void,
+        ) -> c_int {
+            if user_data.is_null() {
+                return 1;
+            }
+            let state = unsafe { &mut *(user_data as *mut TrampolineState<'_, F>) };
+            if state.panicked {
+                return 1;
+            }
+            if token.is_null() {
+                return 0;
+            }
+            let slice = unsafe { std::ffi::CStr::from_ptr(token) };
+            let s = match slice.to_str() {
+                Ok(s) => s,
+                Err(_) => return 1,
             };
-            notify.notified().await;
-        }
-    }
-
-    async fn load_model(&self, model_id: &str, notify: Arc<Notify>) -> Result<MlxModel, Error> {
-        let result = MlxModel::new(model_id).await;
-        let mut models = self.models.lock().await;
-        match result {
-            Ok(model) => {
-                models.insert(
-                    model_id.to_string(),
-                    ModelState::Ready {
-                        model: model.clone(),
-                        last_used: Instant::now(),
-                    },
-                );
-                notify.notify_waiters();
-                Ok(model)
-            }
-            Err(e) => {
-                models.remove(model_id);
-                notify.notify_waiters();
-                Err(e)
-            }
-        }
-    }
-
-    /// Evict a single model if it's `Ready`. Callers who want more
-    /// control over lifecycle can wire this up themselves instead of
-    /// relying on the idle monitor.
-    pub async fn evict(&self, model_id: &str) {
-        let mut models = self.models.lock().await;
-        if let Some(ModelState::Ready { .. }) = models.get(model_id) {
-            models.remove(model_id);
-        }
-    }
-
-    /// Drop every `Ready` model and prevent new loads.
-    pub async fn stop_all(&self) {
-        self.shutdown.store(true, Ordering::Relaxed);
-        let mut models = self.models.lock().await;
-        let keys: Vec<String> = models
-            .iter()
-            .filter(|(_, state)| matches!(state, ModelState::Ready { .. }))
-            .map(|(k, _)| k.clone())
-            .collect();
-        for key in keys {
-            models.remove(&key);
-        }
-    }
-
-    /// Spawn a background task that periodically evicts idle models.
-    /// The task exits after `stop_all` is called.
-    pub fn start_idle_monitor(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
-        let pool = Arc::clone(self);
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(MONITOR_INTERVAL).await;
-                if pool.shutdown.load(Ordering::Relaxed) {
-                    break;
-                }
-                let expired: Vec<String> = {
-                    let models = pool.models.lock().await;
-                    models
-                        .iter()
-                        .filter_map(|(name, state)| match state {
-                            ModelState::Ready { last_used, .. }
-                                if last_used.elapsed() > pool.idle_timeout =>
-                            {
-                                Some(name.clone())
-                            }
-                            _ => None,
-                        })
-                        .collect()
-                };
-                if !expired.is_empty() {
-                    let mut models = pool.models.lock().await;
-                    for name in &expired {
-                        tracing::info!(model = %name, "mlx: evicting idle model");
-                        models.remove(name);
-                    }
+            let cb = &mut state.cb;
+            let result = panic::catch_unwind(panic::AssertUnwindSafe(|| (*cb)(s)));
+            match result {
+                Ok(true) => 1,
+                Ok(false) => 0,
+                Err(_) => {
+                    state.panicked = true;
+                    1
                 }
             }
-        })
+        }
+
+        let mut state = TrampolineState {
+            cb: &mut on_token,
+            panicked: false,
+        };
+        let mut guard = ResultGuard::zeroed();
+        let status = unsafe {
+            ffi::crabllm_mlx_pool_generate_stream(
+                self.inner.as_ptr(),
+                model_c.as_ptr(),
+                owned.as_raw(),
+                trampoline::<F>,
+                &mut state as *mut TrampolineState<'_, F> as *mut c_void,
+                guard.as_mut_ptr(),
+            )
+        };
+
+        if state.panicked {
+            return Err(Error::Internal(
+                "mlx: token callback panicked during streaming".to_string(),
+            ));
+        }
+
+        if status == ffi::CRABLLM_MLX_OK {
+            let tool_calls_json = unsafe { copy_c_string_opt(guard.inner.tool_calls_json)? };
+            Ok(crate::session::StreamOutput {
+                tool_calls_json,
+                prompt_tokens: guard.inner.prompt_tokens,
+                completion_tokens: guard.inner.completion_tokens,
+            })
+        } else {
+            let msg = unsafe { copy_c_string_opt(guard.inner.error) }
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "(no error message from Swift)".to_string());
+            Err(translate_status(status, msg))
+        }
+    }
+
+    /// Evict a single model.
+    pub fn evict(&self, model_dir: &str) {
+        if let Ok(c) = CString::new(model_dir) {
+            unsafe { ffi::crabllm_mlx_pool_evict(self.inner.as_ptr(), c.as_ptr()) };
+        }
+    }
+
+    /// Evict all models and stop the idle monitor.
+    pub fn stop_all(&self) {
+        unsafe { ffi::crabllm_mlx_pool_stop_all(self.inner.as_ptr()) };
     }
 }
 
-impl Default for MlxPool {
-    fn default() -> Self {
-        Self::new()
+impl Drop for MlxPool {
+    fn drop(&mut self) {
+        unsafe { ffi::crabllm_mlx_pool_free(self.inner.as_ptr()) };
     }
 }

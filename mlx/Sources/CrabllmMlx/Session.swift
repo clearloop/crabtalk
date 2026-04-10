@@ -20,18 +20,19 @@
 // never mutate the wrapper after construction.
 
 import Foundation
+import MLXHuggingFace
 import MLXLLM
 import MLXLMCommon
-import Tokenizers  // ToolSpec lives here as `[String: any Sendable]`
+import Tokenizers
 
 // MARK: - Status constants (pinned by smoke.c _Static_asserts)
 
-private let CRABLLM_MLX_OK: Int32 = 0
-private let CRABLLM_MLX_ERR_INVALID_ARG: Int32 = 1
-private let CRABLLM_MLX_ERR_MODEL_LOAD: Int32 = 2
-private let CRABLLM_MLX_ERR_UNSUPPORTED_ARCH: Int32 = 3
-private let CRABLLM_MLX_ERR_GENERATE: Int32 = 4
-private let CRABLLM_MLX_ERR_UNKNOWN: Int32 = 99
+let CRABLLM_MLX_OK: Int32 = 0
+let CRABLLM_MLX_ERR_INVALID_ARG: Int32 = 1
+let CRABLLM_MLX_ERR_MODEL_LOAD: Int32 = 2
+let CRABLLM_MLX_ERR_UNSUPPORTED_ARCH: Int32 = 3
+let CRABLLM_MLX_ERR_GENERATE: Int32 = 4
+let CRABLLM_MLX_ERR_UNKNOWN: Int32 = 99
 
 // MARK: - Session type
 
@@ -83,18 +84,18 @@ private let resultOffsetError = 24
 
 // MARK: - String helpers
 
-private func cString(_ s: String) -> UnsafeMutablePointer<CChar>? {
+func cString(_ s: String) -> UnsafeMutablePointer<CChar>? {
     return s.withCString { strdup($0) }
 }
 
-private func swiftString(_ cStr: UnsafePointer<CChar>?) -> String? {
+func swiftString(_ cStr: UnsafePointer<CChar>?) -> String? {
     guard let cStr = cStr else { return nil }
     return String(cString: cStr)
 }
 
 // MARK: - Request struct accessors
 
-private struct RequestView {
+struct RequestView {
     let messagesJson: String
     let toolsJson: String?
     let maxTokens: Int?
@@ -104,7 +105,7 @@ private struct RequestView {
     let cancelFlag: UnsafePointer<UInt32>?
 }
 
-private func parseRequest(_ request: UnsafeRawPointer) -> RequestView? {
+func parseRequest(_ request: UnsafeRawPointer) -> RequestView? {
     let messagesPtrField = request.advanced(by: requestOffsetMessagesJson)
         .assumingMemoryBound(to: UnsafePointer<CChar>?.self)
     guard let messages = swiftString(messagesPtrField.pointee), !messages.isEmpty else {
@@ -142,35 +143,35 @@ private func parseRequest(_ request: UnsafeRawPointer) -> RequestView? {
 
 // MARK: - Result struct accessors
 
-private func resultSetText(_ result: UnsafeMutableRawPointer, _ s: String?) {
+func resultSetText(_ result: UnsafeMutableRawPointer, _ s: String?) {
     let field = result.advanced(by: resultOffsetText)
         .assumingMemoryBound(to: UnsafeMutablePointer<CChar>?.self)
     field.pointee = s.flatMap { cString($0) }
 }
 
-private func resultSetToolCallsJson(_ result: UnsafeMutableRawPointer, _ s: String?) {
+func resultSetToolCallsJson(_ result: UnsafeMutableRawPointer, _ s: String?) {
     let field = result.advanced(by: resultOffsetToolCallsJson)
         .assumingMemoryBound(to: UnsafeMutablePointer<CChar>?.self)
     field.pointee = s.flatMap { cString($0) }
 }
 
-private func resultSetPromptTokens(_ result: UnsafeMutableRawPointer, _ n: UInt32) {
+func resultSetPromptTokens(_ result: UnsafeMutableRawPointer, _ n: UInt32) {
     result.advanced(by: resultOffsetPromptTokens)
         .assumingMemoryBound(to: UInt32.self).pointee = n
 }
 
-private func resultSetCompletionTokens(_ result: UnsafeMutableRawPointer, _ n: UInt32) {
+func resultSetCompletionTokens(_ result: UnsafeMutableRawPointer, _ n: UInt32) {
     result.advanced(by: resultOffsetCompletionTokens)
         .assumingMemoryBound(to: UInt32.self).pointee = n
 }
 
-private func resultSetError(_ result: UnsafeMutableRawPointer, _ s: String?) {
+func resultSetError(_ result: UnsafeMutableRawPointer, _ s: String?) {
     let field = result.advanced(by: resultOffsetError)
         .assumingMemoryBound(to: UnsafeMutablePointer<CChar>?.self)
     field.pointee = s.flatMap { cString($0) }
 }
 
-private func resultClear(_ result: UnsafeMutableRawPointer) {
+func resultClear(_ result: UnsafeMutableRawPointer) {
     resultSetText(result, nil)
     resultSetToolCallsJson(result, nil)
     resultSetError(result, nil)
@@ -178,7 +179,7 @@ private func resultClear(_ result: UnsafeMutableRawPointer) {
     resultSetCompletionTokens(result, 0)
 }
 
-private func resultFreeStringField(_ result: UnsafeMutableRawPointer, offset: Int) {
+func resultFreeStringField(_ result: UnsafeMutableRawPointer, offset: Int) {
     let field = result.advanced(by: offset)
         .assumingMemoryBound(to: UnsafeMutablePointer<CChar>?.self)
     if let ptr = field.pointee {
@@ -207,7 +208,7 @@ private func resultFreeStringField(_ result: UnsafeMutableRawPointer, offset: In
 /// `nonisolated(unsafe)` is needed because `Result<T, Error>` is not
 /// `Sendable` for arbitrary `T`; the pointer hand-off is single-shot
 /// and mediated by the semaphore.
-private func blockingAwait<T>(_ op: @Sendable @escaping () async throws -> T) throws -> T {
+func blockingAwait<T>(_ op: @Sendable @escaping () async throws -> T) throws -> T {
     let semaphore = DispatchSemaphore(value: 0)
     nonisolated(unsafe) var result: Result<T, Error>?
     Task.detached {
@@ -248,14 +249,14 @@ private func blockingAwait<T>(_ op: @Sendable @escaping () async throws -> T) th
 ///     subsequent `system` messages are added to `history` as
 ///     `.system(...)` and whether they take effect depends on the
 ///     model's chat template.
-private struct DecodedMessages {
+struct DecodedMessages {
     let instructions: String?
     let history: [Chat.Message]
     let lastPrompt: String
     let lastRole: Chat.Message.Role
 }
 
-private func decodeMessages(_ json: String) throws -> DecodedMessages {
+func decodeMessages(_ json: String) throws -> DecodedMessages {
     guard let data = json.data(using: .utf8) else {
         throw FFIError.invalidArg("messages_json not valid UTF-8")
     }
@@ -311,7 +312,7 @@ private func decodeMessages(_ json: String) throws -> DecodedMessages {
 
 /// Collapse an OpenAI-shape `content` payload into a plain string.
 /// Returns nil for NULL / empty / unrecognized input.
-private func flattenContent(_ value: Any?) -> String? {
+func flattenContent(_ value: Any?) -> String? {
     guard let value = value else { return nil }
     if let s = value as? String {
         return s.isEmpty ? nil : s
@@ -337,7 +338,7 @@ private func flattenContent(_ value: Any?) -> String? {
 /// Decode the Rust-supplied tools JSON into `[ToolSpec]`. `ToolSpec`
 /// is just `[String: any Sendable]` (a JSON dict) so we route through
 /// `JSONSerialization`.
-private func decodeTools(_ json: String?) throws -> [ToolSpec]? {
+func decodeTools(_ json: String?) throws -> [ToolSpec]? {
     guard let json = json, !json.isEmpty else { return nil }
     guard let data = json.data(using: .utf8) else {
         throw FFIError.invalidArg("tools_json not valid UTF-8")
@@ -356,7 +357,7 @@ private func decodeTools(_ json: String?) throws -> [ToolSpec]? {
 
 // MARK: - Internal error type
 
-private enum FFIError: Error {
+enum FFIError: Error {
     case invalidArg(String)
     case modelLoad(String)
     case unsupportedArch(String)
@@ -379,7 +380,7 @@ private enum FFIError: Error {
     }
 }
 
-private func translateModelLoadError(_ error: Error) -> FFIError {
+func translateModelLoadError(_ error: Error) -> FFIError {
     // `ModelFactoryError.unsupportedModelType(String)` is the signal we
     // care about — surface it with a distinct status so the Rust side
     // can return OpenAI `model_not_found`. Every other variant maps to
@@ -431,7 +432,10 @@ public func crabllm_mlx_session_new(
 
     do {
         let container = try blockingAwait {
-            try await loadModelContainer(directory: url)
+            try await loadModelContainer(
+                from: url,
+                using: #huggingFaceTokenizerLoader()
+            )
         }
         let session = CrabllmMlxSession(container: container)
         outSession.pointee = Unmanaged.passRetained(session).toOpaque()
@@ -458,7 +462,17 @@ public func crabllm_mlx_session_free(_ session: UnsafeMutableRawPointer?) {
 private func runGeneration(
     _ session: CrabllmMlxSession,
     _ view: RequestView,
-    onChunk: ((String) -> Bool)?  // returns true to stop
+    onChunk: ((String) -> Bool)?
+) throws -> (text: String, toolCallsJson: String?, promptTokens: UInt32, completionTokens: UInt32) {
+    return try runGenerationWithContainer(session.container, view, onChunk: onChunk)
+}
+
+/// Core generation driving a `ModelContainer`. Called by both the
+/// session FFI and the pool FFI so the logic lives in one place.
+func runGenerationWithContainer(
+    _ container: ModelContainer,
+    _ view: RequestView,
+    onChunk: ((String) -> Bool)?
 ) throws -> (text: String, toolCallsJson: String?, promptTokens: UInt32, completionTokens: UInt32) {
     let decoded: DecodedMessages
     do {
@@ -484,7 +498,7 @@ private func runGeneration(
     if let p = view.topP { params.topP = p }
     if let m = view.maxTokens { params.maxTokens = m }
 
-    return try blockingAwait { [container = session.container, params, tools, decoded] in
+    return try blockingAwait { [container, params, tools, decoded] in
         let chat = ChatSession(
             container,
             instructions: decoded.instructions,

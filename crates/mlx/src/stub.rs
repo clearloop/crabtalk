@@ -1,20 +1,11 @@
-//! Non-Apple stub. Every call returns `Error::not_implemented` so the
-//! crate compiles on Linux / Windows / etc. and downstream code that
-//! references `crabllm_mlx::*` behind a `cfg` still type-checks.
-//!
-//! The public surface must stay in lockstep with the real `session.rs`,
-//! `model.rs`, `pool.rs`, and `provider.rs`. Adding a public API in
-//! one of those files without mirroring it here breaks the Linux CI
-//! build.
+//! Non-Apple stub. Every call returns `Error::not_implemented`.
 
 use crabllm_core::{
     BoxStream, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Error, Provider,
 };
-use std::{path::Path, sync::Arc, sync::atomic::AtomicU32, time::Duration};
+use std::{path::Path, sync::Arc, sync::atomic::AtomicU32};
 
 const STUB_MSG: &str = "mlx: only macOS and iOS (Apple Silicon) are supported";
-
-// ---------- Session-level types ----------
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct GenerateOptions {
@@ -47,7 +38,6 @@ pub struct StreamOutput {
 }
 
 pub struct Session;
-
 unsafe impl Send for Session {}
 unsafe impl Sync for Session {}
 
@@ -72,56 +62,17 @@ impl Session {
     }
 }
 
-// ---------- High-level types (MlxModel / MlxPool / MlxProvider) ----------
-
-#[derive(Clone)]
-pub struct MlxModel;
-
-impl MlxModel {
-    pub async fn new(_model_id: impl Into<String>) -> Result<Self, Error> {
-        Err(Error::not_implemented(STUB_MSG))
-    }
-
-    pub fn name(&self) -> &str {
-        ""
-    }
-}
-
-impl Provider for MlxModel {
-    async fn chat_completion(
-        &self,
-        _request: &ChatCompletionRequest,
-    ) -> Result<ChatCompletionResponse, Error> {
-        Err(Error::not_implemented(STUB_MSG))
-    }
-
-    async fn chat_completion_stream(
-        &self,
-        _request: &ChatCompletionRequest,
-    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
-        Err(Error::not_implemented(STUB_MSG))
-    }
-}
-
-#[derive(Debug, Default)]
 pub struct MlxPool;
+unsafe impl Send for MlxPool {}
+unsafe impl Sync for MlxPool {}
 
 impl MlxPool {
-    pub fn new() -> Self {
-        Self
-    }
-
-    pub fn with_idle_timeout(self, _timeout: Duration) -> Self {
-        self
-    }
-
-    pub async fn ensure_loaded(&self, _model_id: &str) -> Result<MlxModel, Error> {
+    pub fn new(_idle_timeout_secs: u64) -> Result<Self, Error> {
         Err(Error::not_implemented(STUB_MSG))
     }
 
-    pub async fn evict(&self, _model_id: &str) {}
-
-    pub async fn stop_all(&self) {}
+    pub fn evict(&self, _model_dir: &str) {}
+    pub fn stop_all(&self) {}
 }
 
 #[derive(Clone, Debug)]

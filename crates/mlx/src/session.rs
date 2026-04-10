@@ -237,14 +237,14 @@ impl Drop for Session {
 /// (trivially) and the CStrings drop after. Reordering fields, adding
 /// a derive that moves state, or replacing either CString with a
 /// borrowed reference will dangle `raw.messages_json` / `raw.tools_json`.
-struct OwnedRequest {
+pub(crate) struct OwnedRequest {
     _messages: CString,
     _tools: Option<CString>,
     raw: ffi::CrabllmMlxGenerateRequest,
 }
 
 impl OwnedRequest {
-    fn new(req: &GenerateRequest<'_>) -> Result<Self, Error> {
+    pub(crate) fn new(req: &GenerateRequest<'_>) -> Result<Self, Error> {
         let messages = CString::new(req.messages_json)
             .map_err(|_| Error::Internal("mlx: messages_json contains NUL byte".to_string()))?;
         let tools =
@@ -282,7 +282,7 @@ impl OwnedRequest {
         })
     }
 
-    fn as_raw(&self) -> *const ffi::CrabllmMlxGenerateRequest {
+    pub(crate) fn as_raw(&self) -> *const ffi::CrabllmMlxGenerateRequest {
         &self.raw
     }
 }
@@ -290,12 +290,12 @@ impl OwnedRequest {
 /// RAII guard around a `CrabllmMlxGenerateResult`. Drop calls
 /// `crabllm_mlx_result_free` so any Swift-owned strings we did not
 /// steal (on error paths, or on early return) are released exactly once.
-struct ResultGuard {
-    inner: ffi::CrabllmMlxGenerateResult,
+pub(crate) struct ResultGuard {
+    pub(crate) inner: ffi::CrabllmMlxGenerateResult,
 }
 
 impl ResultGuard {
-    fn zeroed() -> Self {
+    pub(crate) fn zeroed() -> Self {
         ResultGuard {
             inner: ffi::CrabllmMlxGenerateResult {
                 text: ptr::null_mut(),
@@ -307,7 +307,7 @@ impl ResultGuard {
         }
     }
 
-    fn as_mut_ptr(&mut self) -> *mut ffi::CrabllmMlxGenerateResult {
+    pub(crate) fn as_mut_ptr(&mut self) -> *mut ffi::CrabllmMlxGenerateResult {
         &mut self.inner
     }
 }
@@ -376,7 +376,7 @@ extern "C" fn trampoline<F: FnMut(&str) -> bool>(
 ///
 /// Returns a placeholder on NULL input so callers can unconditionally
 /// use the returned string in an error message.
-unsafe fn take_owned_c_string(ptr: *mut c_char) -> String {
+pub(crate) unsafe fn take_owned_c_string(ptr: *mut c_char) -> String {
     if ptr.is_null() {
         return "(no error message from Swift)".to_string();
     }
@@ -393,7 +393,7 @@ unsafe fn take_owned_c_string(ptr: *mut c_char) -> String {
 /// Copy a C string field from a `ResultGuard` without freeing it.
 /// Strict UTF-8: invalid bytes are an error, not a silent U+FFFD
 /// substitution. Returns `Ok(None)` on NULL.
-unsafe fn copy_c_string_opt(ptr: *mut c_char) -> Result<Option<String>, Error> {
+pub(crate) unsafe fn copy_c_string_opt(ptr: *mut c_char) -> Result<Option<String>, Error> {
     if ptr.is_null() {
         return Ok(None);
     }
@@ -406,7 +406,7 @@ unsafe fn copy_c_string_opt(ptr: *mut c_char) -> Result<Option<String>, Error> {
     }
 }
 
-fn translate_status(status: ffi::CrabllmMlxStatus, msg: String) -> Error {
+pub(crate) fn translate_status(status: ffi::CrabllmMlxStatus, msg: String) -> Error {
     let label = match status {
         ffi::CRABLLM_MLX_ERR_INVALID_ARG => "mlx invalid arg",
         ffi::CRABLLM_MLX_ERR_MODEL_LOAD => "mlx model load",

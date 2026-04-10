@@ -201,6 +201,64 @@ void crabllm_mlx_result_free(CrabllmMlxGenerateResult *result);
  */
 void crabllm_mlx_string_free(char *s);
 
+/* ── Multi-model pool ──
+ *
+ * The pool manages multiple loaded models keyed by local directory
+ * path. Models are loaded on first request and evicted after the idle
+ * timeout. Swift owns the lifecycle (native async, actor-isolated);
+ * the Rust side only holds the opaque handle and calls through.
+ *
+ * Thread-safety: the pool is actor-isolated in Swift. All FFI entry
+ * points are safe to call from any thread. Internally they bridge to
+ * the actor via `blockingAwait` (same contract as session functions:
+ * caller thread must not be a cooperative executor worker).
+ */
+
+typedef struct CrabllmMlxPool CrabllmMlxPool;
+
+/*
+ * Create a pool. `idle_timeout_secs == 0` uses the default (30 min).
+ * Blocking. Call from a background thread.
+ */
+CrabllmMlxStatus crabllm_mlx_pool_new(
+    uint64_t idle_timeout_secs,
+    CrabllmMlxPool **out_pool,
+    char **out_error);
+
+/* Release a pool and all loaded models. Safe to call with NULL. */
+void crabllm_mlx_pool_free(CrabllmMlxPool *pool);
+
+/*
+ * Non-streaming generation through the pool. The pool loads the model
+ * at `model_dir_path` on first call and caches it for subsequent
+ * requests. Semantics otherwise identical to crabllm_mlx_generate.
+ * Blocking. Call from a background thread.
+ */
+CrabllmMlxStatus crabllm_mlx_pool_generate(
+    CrabllmMlxPool *pool,
+    const char *model_dir_path,
+    const CrabllmMlxGenerateRequest *request,
+    CrabllmMlxGenerateResult *result);
+
+/*
+ * Streaming generation through the pool. Semantics identical to
+ * crabllm_mlx_generate_stream but model loading is pool-managed.
+ * Blocking. Call from a background thread.
+ */
+CrabllmMlxStatus crabllm_mlx_pool_generate_stream(
+    CrabllmMlxPool *pool,
+    const char *model_dir_path,
+    const CrabllmMlxGenerateRequest *request,
+    CrabllmMlxTokenFn token_cb,
+    void *user_data,
+    CrabllmMlxGenerateResult *result);
+
+/* Evict a single model from the pool. No-op if not loaded. */
+void crabllm_mlx_pool_evict(CrabllmMlxPool *pool, const char *model_dir_path);
+
+/* Evict all models and stop the idle monitor. */
+void crabllm_mlx_pool_stop_all(CrabllmMlxPool *pool);
+
 #ifdef __cplusplus
 }
 #endif

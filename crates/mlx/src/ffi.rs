@@ -22,6 +22,11 @@ pub struct CrabllmMlxSession {
 }
 
 #[repr(C)]
+pub struct CrabllmMlxPool {
+    _private: [u8; 0],
+}
+
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub struct CrabllmMlxGenerateOptions {
     pub seed: u64,
@@ -75,4 +80,33 @@ unsafe extern "C" {
     pub fn crabllm_mlx_result_free(result: *mut CrabllmMlxGenerateResult);
 
     pub fn crabllm_mlx_string_free(s: *mut c_char);
+
+    // Pool functions
+    pub fn crabllm_mlx_pool_new(
+        idle_timeout_secs: u64,
+        out_pool: *mut *mut CrabllmMlxPool,
+        out_error: *mut *mut c_char,
+    ) -> CrabllmMlxStatus;
+
+    pub fn crabllm_mlx_pool_free(pool: *mut CrabllmMlxPool);
+
+    pub fn crabllm_mlx_pool_generate(
+        pool: *mut CrabllmMlxPool,
+        model_dir_path: *const c_char,
+        request: *const CrabllmMlxGenerateRequest,
+        result: *mut CrabllmMlxGenerateResult,
+    ) -> CrabllmMlxStatus;
+
+    pub fn crabllm_mlx_pool_generate_stream(
+        pool: *mut CrabllmMlxPool,
+        model_dir_path: *const c_char,
+        request: *const CrabllmMlxGenerateRequest,
+        token_cb: CrabllmMlxTokenFn,
+        user_data: *mut c_void,
+        result: *mut CrabllmMlxGenerateResult,
+    ) -> CrabllmMlxStatus;
+
+    pub fn crabllm_mlx_pool_evict(pool: *mut CrabllmMlxPool, model_dir_path: *const c_char);
+
+    pub fn crabllm_mlx_pool_stop_all(pool: *mut CrabllmMlxPool);
 }
