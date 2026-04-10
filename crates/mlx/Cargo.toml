@@ -1,0 +1,32 @@
+[package]
+name = "crabllm-mlx"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "MLX local inference provider for the crabllm LLM gateway (macOS + iOS)"
+keywords = ["llm", "mlx", "apple", "local", "inference"]
+categories = ["api-bindings"]
+
+# Rust crate directory is `crates/mlx` but the crate name keeps the
+# `crabllm-` prefix for workspace consistency. The Swift static library
+# is built by `build.rs` from the sibling `mlx/` directory at the repo
+# root.
+
+[[example]]
+name = "chat"
+path = "examples/chat.rs"
+
+[dependencies]
+crabllm-core.workspace = true
+futures.workspace = true
+hf-hub.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+rand.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+clap.workspace = true
+tracing-subscriber.workspace = true
