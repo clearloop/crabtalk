@@ -52,12 +52,27 @@ fn main() {
     }
 
     let status = Command::new("swift")
-        .args(["build", "-c", "release"])
+        .args([
+            "build", "-c", "release",
+            // -Osize for Swift code; C++ uses SwiftPM's default -O2.
+            "-Xswiftc", "-Osize",
+        ])
         .current_dir(&mlx_dir)
         .status()
         .expect("failed to invoke `swift build` — is the Swift toolchain installed?");
     if !status.success() {
         panic!("swift build -c release failed in {}", mlx_dir.display());
+    }
+
+    // Strip debug symbols from the static archive. SwiftPM emits -g
+    // even in release mode; stripping saves ~200MB.
+    let lib_path = build_dir.join("libCrabllmMlx.a");
+    let strip_status = Command::new("strip")
+        .args(["-S", "-x"])
+        .arg(&lib_path)
+        .status();
+    if strip_status.is_ok_and(|s| !s.success()) {
+        println!("cargo:warning=strip -S -x failed on {}", lib_path.display());
     }
 
     // Compile Metal shaders into a metallib and write it to OUT_DIR
@@ -157,6 +172,19 @@ fn main() {
     println!("cargo:rustc-link-lib=static=swiftCompatibility56");
     println!("cargo:rustc-link-lib=static=swiftCompatibilityConcurrency");
     println!("cargo:rustc-link-lib=static=swiftCompatibilityPacks");
+
+    // MLX requires macOS 14+. Force the deployment target so the
+    // linker doesn't warn about version mismatches with the Swift .a.
+    println!("cargo:rustc-link-arg=-mmacosx-version-min=14.0");
+    // Link compiler-rt for __isPlatformVersionAtLeast used by MLX's
+    // C++ @available checks. Rust's default linker invocation omits
+    // this since it doesn't know about the C++ objects in our .a.
+    let clang_rt = format!(
+        "{dev_dir}/Toolchains/XcodeDefault.xctoolchain/usr/lib/clang/17/lib/darwin/libclang_rt.osx.a"
+    );
+    if std::path::Path::new(&clang_rt).exists() {
+        println!("cargo:rustc-link-arg={clang_rt}");
+    }
 
     // Runtime rpath for the OS-bundled Swift stdlib. Only applies on
     // macOS — iOS device and simulator embed the Swift runtime in the
