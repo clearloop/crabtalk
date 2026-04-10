@@ -530,12 +530,12 @@ dependencies = [
  "crabllm-core",
  "futures",
  "hf-hub",
+ "rand 0.9.2",
  "serde",
  "serde_json",
  "tokio",
  "tracing",
  "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]

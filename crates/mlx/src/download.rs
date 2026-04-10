@@ -89,7 +89,7 @@ pub fn download_model(repo: &str) -> Result<PathBuf, Error> {
 
 fn is_wanted_filename(name: &str) -> bool {
     let basename = name.rsplit('/').next().unwrap_or(name);
-    if ALLOWED_EXACT.iter().any(|exact| basename == *exact) {
+    if ALLOWED_EXACT.contains(&basename) {
         return true;
     }
     ALLOWED_SUFFIXES.iter().any(|ext| basename.ends_with(ext))

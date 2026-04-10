@@ -225,8 +225,14 @@ fn serialize_tools(request: &ChatCompletionRequest) -> Result<Option<String>, Er
         .map_err(|e| Error::Internal(format!("mlx: serialize tools: {e}")))
 }
 
+fn random_hex() -> String {
+    use rand::Rng;
+    let bytes: [u8; 12] = rand::rng().random();
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 fn new_completion_id() -> String {
-    format!("chatcmpl-{}", uuid::Uuid::new_v4().simple())
+    format!("chatcmpl-{}", random_hex())
 }
 
 fn unix_seconds_now() -> u64 {
@@ -360,7 +366,7 @@ fn parse_tool_calls(json: Option<&str>) -> Result<Vec<ToolCall>, Error> {
         .enumerate()
         .map(|(idx, call)| ToolCall {
             index: Some(idx as u32),
-            id: format!("call_{}", uuid::Uuid::new_v4().simple()),
+            id: format!("call_{}", random_hex()),
             kind: ToolType::Function,
             function: FunctionCall {
                 name: call.function.name,
