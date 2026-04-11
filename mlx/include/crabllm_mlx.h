@@ -253,8 +253,13 @@ CrabllmMlxStatus crabllm_mlx_pool_generate_stream(
     void *user_data,
     CrabllmMlxGenerateResult *result);
 
-/* Evict a single model from the pool. No-op if not loaded. */
-void crabllm_mlx_pool_evict(CrabllmMlxPool *pool, const char *model_dir_path);
+/*
+ * Evict a single model from the pool. Returns 1 if the slot was
+ * present and was evicted, 0 otherwise (slot absent, NULL args, or
+ * Swift-side error). Idempotent: calling on an absent slot is a
+ * no-op aside from the return value.
+ */
+int32_t crabllm_mlx_pool_evict(CrabllmMlxPool *pool, const char *model_dir_path);
 
 /* Evict all models and stop the idle monitor. */
 void crabllm_mlx_pool_stop_all(CrabllmMlxPool *pool);

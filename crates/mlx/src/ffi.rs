@@ -117,7 +117,7 @@ unsafe extern "C" {
         result: *mut CrabllmMlxGenerateResult,
     ) -> CrabllmMlxStatus;
 
-    pub fn crabllm_mlx_pool_evict(pool: *mut CrabllmMlxPool, model_dir_path: *const c_char);
+    pub fn crabllm_mlx_pool_evict(pool: *mut CrabllmMlxPool, model_dir_path: *const c_char) -> i32;
 
     pub fn crabllm_mlx_pool_stop_all(pool: *mut CrabllmMlxPool);
 

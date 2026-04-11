@@ -57,8 +57,9 @@ actor MlxPool {
         return container
     }
 
-    func evict(_ modelDir: String) {
-        models.removeValue(forKey: modelDir)
+    /// Returns `true` if the slot was present before this call.
+    func evict(_ modelDir: String) -> Bool {
+        models.removeValue(forKey: modelDir) != nil
     }
 
     func stopAll() {
@@ -247,10 +248,16 @@ public func crabllm_mlx_pool_generate_stream(
 public func crabllm_mlx_pool_evict(
     _ pool: UnsafeMutableRawPointer?,
     _ modelDirPath: UnsafePointer<CChar>?
-) {
-    guard let pool = pool, let dir = swiftString(modelDirPath) else { return }
+) -> Int32 {
+    guard let pool = pool, let dir = swiftString(modelDirPath) else { return 0 }
     let actor = Unmanaged<MlxPoolBox>.fromOpaque(pool).takeUnretainedValue().pool
-    try? blockingAwait { await actor.evict(dir) }
+    let wasPresent: Bool
+    do {
+        wasPresent = try blockingAwait { await actor.evict(dir) }
+    } catch {
+        return 0
+    }
+    return wasPresent ? 1 : 0
 }
 
 @_cdecl("crabllm_mlx_pool_stop_all")

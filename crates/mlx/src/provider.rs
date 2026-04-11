@@ -77,20 +77,24 @@ impl MlxProvider {
     /// Unload a model from the pool.
     ///
     /// Accepts the same inputs as a generate call: a local directory
-    /// path, a full HuggingFace repo id, or a registry alias. If the
-    /// model is not cached on disk (never downloaded, already wiped)
-    /// this is a no-op — the pool's evict is already idempotent and a
-    /// caller asking to unload an unloaded model got what they wanted.
+    /// path, a full HuggingFace repo id, or a registry alias.
+    ///
+    /// Returns `true` if the slot was loaded in the pool at the
+    /// moment of the call and was actually evicted; `false` if the
+    /// model was not cached on disk or was cached but not loaded in
+    /// the pool. Downstream admin endpoints can map `false` to a
+    /// 404 "not loaded" response and `true` to a 200 "evicted".
     ///
     /// Generations already in flight for this model continue
     /// uninterrupted: the Swift side holds a strong reference to the
     /// `ModelContainer` for the duration of the call, so dropping it
     /// from the pool's slot table only releases the pool's reference.
     /// The next request for this model reloads from disk.
-    pub fn unload(&self, model_id: &str) {
-        if let Some(dir) = self.lookup_cached_model_dir(model_id) {
-            self.pool.evict(&dir.to_string_lossy());
-        }
+    pub fn unload(&self, model_id: &str) -> bool {
+        let Some(dir) = self.lookup_cached_model_dir(model_id) else {
+            return false;
+        };
+        self.pool.evict(&dir.to_string_lossy())
     }
 
     /// Evict every loaded model and stop the idle monitor. The pool

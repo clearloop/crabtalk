@@ -97,6 +97,23 @@ fn http_status_from_error(e: &crabllm_core::Error) -> u16 {
     }
 }
 
+fn emit_usage_error<S: Storage, P: Provider>(
+    state: &AppState<S, P>,
+    ctx: &RequestContext,
+    endpoint: &'static str,
+    e: &crabllm_core::Error,
+) {
+    emit_usage(
+        state,
+        ctx,
+        endpoint,
+        0,
+        0,
+        http_status_from_error(e),
+        Some(e.to_string()),
+    );
+}
+
 /// POST /v1/chat/completions
 pub async fn chat_completions<S, P>(
     State(state): State<AppState<S, P>>,
@@ -165,12 +182,13 @@ where
                     let extensions = state.extensions.clone();
                     let ctx = Arc::new(ctx);
                     let errored = Arc::new(AtomicBool::new(false));
-                    // Relaxed loads/stores on these atomics are sound: the
-                    // `done` stream-once only polls after the upstream
-                    // `.then` stream has yielded `Poll::Ready(None)`, which
-                    // happens-after every per-chunk future resolves. The
-                    // `.chain` combinator provides the ordering; the atomic
-                    // type is just for interior mutability across clones.
+                    // `Ordering::Relaxed` is sufficient because the stream
+                    // is polled by a single task — every store in the
+                    // per-chunk future is sequenced-before the `done`
+                    // terminator's load via tokio's normal single-task
+                    // poll ordering. No cross-thread visibility problem
+                    // exists; the atomics only provide interior
+                    // mutability across closure clones.
                     let tokens_in = Arc::new(AtomicU32::new(0));
                     let tokens_out = Arc::new(AtomicU32::new(0));
                     let first_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
@@ -240,21 +258,28 @@ where
                         }
                     });
 
-                    // Record duration once when the stream terminates.
-                    // The wire status is always 200 here — headers were
-                    // sent before the first chunk, so mid-stream failures
-                    // surface via UsageEvent::error, not status.
+                    // Record duration + emit usage once when the stream
+                    // terminates. Status codes:
+                    //   - 200: clean stream, no errors
+                    //   - 0:   mid-stream failure after headers went out.
+                    //          The real wire status was 200 (headers
+                    //          shipped before the break), but reporting
+                    //          200 again here would let consumers miss
+                    //          the failure without also inspecting the
+                    //          `error` field. 0 is a clear sentinel
+                    //          meaning "not a real HTTP response".
                     let done = futures::stream::once(async move {
                         let errored = errored_done.load(Ordering::Relaxed);
                         record_duration(&ctx_done, if errored { "5xx" } else { "2xx" });
                         let error = first_error_done.lock().unwrap().take();
+                        let status = if errored { 0 } else { 200 };
                         emit_usage(
                             &state_done,
                             &ctx_done,
                             "chat.completions",
                             tokens_in_done.load(Ordering::Relaxed),
                             tokens_out_done.load(Ordering::Relaxed),
-                            200,
+                            status,
                             error,
                         );
                         Ok::<_, std::convert::Infallible>(Event::default().data("[DONE]"))
@@ -275,15 +300,7 @@ where
             ext.on_error(&ctx, &e).await;
         }
         record_duration(&ctx, "5xx");
-        emit_usage(
-            &state,
-            &ctx,
-            "chat.completions",
-            0,
-            0,
-            http_status_from_error(&e),
-            Some(e.to_string()),
-        );
+        emit_usage_error(&state, &ctx, "chat.completions", &e);
         error_response(e)
     } else {
         // Non-streaming: check cache first.
@@ -324,15 +341,7 @@ where
             ext.on_error(&ctx, &e).await;
         }
         record_duration(&ctx, error_status(&e));
-        emit_usage(
-            &state,
-            &ctx,
-            "chat.completions",
-            0,
-            0,
-            http_status_from_error(&e),
-            Some(e.to_string()),
-        );
+        emit_usage_error(&state, &ctx, "chat.completions", &e);
         error_response(e)
     }
 }
@@ -414,15 +423,7 @@ where
         ext.on_error(&ctx, &e).await;
     }
     record_duration(&ctx, error_status(&e));
-    emit_usage(
-        &state,
-        &ctx,
-        "embeddings",
-        0,
-        0,
-        http_status_from_error(&e),
-        Some(e.to_string()),
-    );
+    emit_usage_error(&state, &ctx, "embeddings", &e);
     error_response(e)
 }
 
@@ -523,15 +524,7 @@ where
         ext.on_error(&ctx, &e).await;
     }
     record_duration(&ctx, error_status(&e));
-    emit_usage(
-        &state,
-        &ctx,
-        "images.generations",
-        0,
-        0,
-        http_status_from_error(&e),
-        Some(e.to_string()),
-    );
+    emit_usage_error(&state, &ctx, "images.generations", &e);
     error_response(e)
 }
 
@@ -609,15 +602,7 @@ where
         ext.on_error(&ctx, &e).await;
     }
     record_duration(&ctx, error_status(&e));
-    emit_usage(
-        &state,
-        &ctx,
-        "audio.speech",
-        0,
-        0,
-        http_status_from_error(&e),
-        Some(e.to_string()),
-    );
+    emit_usage_error(&state, &ctx, "audio.speech", &e);
     error_response(e)
 }
 
@@ -745,15 +730,7 @@ where
         ext.on_error(&ctx, &e).await;
     }
     record_duration(&ctx, error_status(&e));
-    emit_usage(
-        &state,
-        &ctx,
-        "audio.transcriptions",
-        0,
-        0,
-        http_status_from_error(&e),
-        Some(e.to_string()),
-    );
+    emit_usage_error(&state, &ctx, "audio.transcriptions", &e);
     error_response(e)
 }
 

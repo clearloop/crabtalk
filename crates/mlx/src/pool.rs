@@ -148,11 +148,13 @@ impl MlxPool {
         }
     }
 
-    /// Evict a single model.
-    pub(crate) fn evict(&self, model_dir: &str) {
-        if let Ok(c) = CString::new(model_dir) {
-            unsafe { ffi::crabllm_mlx_pool_evict(self.inner.as_ptr(), c.as_ptr()) };
-        }
+    /// Evict a single model. Returns `true` if the slot was present
+    /// before the call (i.e. something was actually unloaded).
+    pub(crate) fn evict(&self, model_dir: &str) -> bool {
+        let Ok(c) = CString::new(model_dir) else {
+            return false;
+        };
+        unsafe { ffi::crabllm_mlx_pool_evict(self.inner.as_ptr(), c.as_ptr()) == 1 }
     }
 
     /// Evict all models and stop the idle monitor.
@@ -164,8 +166,17 @@ impl MlxPool {
     ///
     /// Each returned [`LoadedModel`] is a copy of the Swift-side slot
     /// at snapshot time. Concurrent generate / evict calls race
-    /// cleanly against this — the Swift actor serializes the
-    /// snapshot with every other mutation.
+    /// cleanly against the snapshot's name + timestamp read, but the
+    /// `memory_bytes` field is computed by a filesystem scan that
+    /// happens *outside* the Swift actor to avoid blocking other
+    /// pool operations. If the model directory is wiped between the
+    /// snapshot and the scan — rare, but possible if another thread
+    /// calls `unload` on exactly this slot while a status poll is in
+    /// flight — the scan returns zero. Such zero-byte entries are
+    /// dropped from the result rather than reported as a misleading
+    /// "Qwen · 0 B · 3m ago" row. Genuine empty directories (model
+    /// never successfully loaded) are unlikely and accepting the
+    /// loss there is cheaper than the alternative.
     pub fn loaded_models(&self) -> Result<Vec<LoadedModel>, Error> {
         let mut arr: *mut ffi::CrabllmMlxLoadedModel = ptr::null_mut();
         let mut count: usize = 0;
@@ -187,6 +198,13 @@ impl MlxPool {
         let mut out = Vec::with_capacity(count);
         for i in 0..count {
             let item = unsafe { &*arr.add(i) };
+            // TOCTOU filter: zero memory_bytes means the FS scan
+            // found nothing at the dir (raced with an evict that
+            // cleaned up the cache). Drop the row rather than
+            // surface a misleading entry.
+            if item.memory_bytes == 0 {
+                continue;
+            }
             let name = if item.name.is_null() {
                 String::new()
             } else {

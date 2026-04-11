@@ -27,15 +27,17 @@ pub struct UsageEvent {
     /// tokens (embeddings, images, audio).
     pub tokens_out: u32,
     pub duration_ms: u64,
-    /// The wire HTTP status the client observed. For streaming chat
-    /// this is always 200 on any connection that produced at least
-    /// one chunk — mid-stream failures surface in [`Self::error`]
-    /// instead, since the response headers went out as 200 OK before
-    /// the stream broke.
+    /// The wire HTTP status the client observed, or `0` when a
+    /// streaming chat response sent 200 OK headers and then broke
+    /// mid-stream. `0` is a sentinel meaning "not a real HTTP
+    /// response" — consumers branching on `status` alone can
+    /// distinguish a clean 200 from a failed stream without having
+    /// to inspect [`Self::error`]. For non-streaming requests
+    /// `status` is always the real HTTP code the client saw.
     pub status: u16,
-    /// `Some(msg)` if the request failed. For streaming chat this
-    /// includes the case where the stream started successfully (status
-    /// == 200) but errored mid-response.
+    /// `Some(msg)` if the request failed. Set alongside `status == 0`
+    /// for mid-stream streaming failures; set alongside a real error
+    /// status (4xx/5xx) for pre-stream and non-streaming failures.
     pub error: Option<String>,
 }
 
