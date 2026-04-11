@@ -1,132 +1,23 @@
 use crate::provider::schema;
 use bytes::{Buf, BytesMut};
 use crabllm_core::{
-    ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice, Delta,
-    Error, FinishReason, FunctionCall, FunctionCallDelta, Message, Role, Stop, ToolCall,
-    ToolCallDelta, ToolChoice, ToolType, Usage,
+    AnthropicContent, AnthropicContentBlock, AnthropicMessage, AnthropicRequest, AnthropicResponse,
+    AnthropicSystem, AnthropicTool, AnthropicUsage, ChatCompletionChunk, ChatCompletionRequest,
+    ChatCompletionResponse, Choice, ChunkChoice, DEFAULT_MAX_TOKENS, Delta, Error, FinishReason,
+    FunctionCall, FunctionCallDelta, Message, Role, Stop, ThinkingConfig, ToolCall, ToolCallDelta,
+    ToolChoice, ToolResultContent, ToolType, Usage,
 };
 use futures::{
     TryStreamExt, pin_mut,
     stream::{self, Stream},
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
-const DEFAULT_MAX_TOKENS: u32 = 4096;
 const BASE_URL: &str = "https://api.anthropic.com/v1";
 const OAUTH_TOKEN_PREFIX: &str = "sk-ant-oat";
 const OAUTH_BETA: &str = "oauth-2025-04-20";
 
-// ── Anthropic-native request types ──
-
-#[derive(Serialize)]
-struct ThinkingConfig {
-    #[serde(rename = "type")]
-    kind: String,
-    budget_tokens: u32,
-}
-
-#[derive(Serialize)]
-struct AnthropicRequest {
-    model: String,
-    messages: Vec<AnthropicMessage>,
-    max_tokens: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    system: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    temperature: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    top_p: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    stream: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tools: Option<Vec<AnthropicTool>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool_choice: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    stop_sequences: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    thinking: Option<ThinkingConfig>,
-}
-
-#[derive(Serialize)]
-struct AnthropicMessage {
-    role: String,
-    content: AnthropicContent,
-}
-
-/// Message content: either a plain string or an array of content blocks.
-#[derive(Serialize)]
-#[serde(untagged)]
-enum AnthropicContent {
-    Text(String),
-    Blocks(Vec<AnthropicContentBlock>),
-}
-
-/// A content block in a message (text, image, tool_use, or tool_result).
-#[derive(Serialize)]
-#[serde(tag = "type")]
-enum AnthropicContentBlock {
-    #[serde(rename = "text")]
-    Text { text: String },
-    #[serde(rename = "image")]
-    Image { source: serde_json::Value },
-    #[serde(rename = "tool_use")]
-    ToolUse {
-        id: String,
-        name: String,
-        input: serde_json::Value,
-    },
-    #[serde(rename = "tool_result")]
-    ToolResult {
-        tool_use_id: String,
-        content: String,
-    },
-}
-
-#[derive(Serialize)]
-struct AnthropicTool {
-    name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-    input_schema: serde_json::Value,
-}
-
-// ── Anthropic-native response types ──
-
-#[derive(Deserialize)]
-struct AnthropicResponse {
-    id: String,
-    model: String,
-    content: Vec<ResponseContentBlock>,
-    stop_reason: Option<String>,
-    usage: AnthropicUsage,
-}
-
-#[derive(Deserialize)]
-struct ResponseContentBlock {
-    #[serde(rename = "type")]
-    kind: String,
-    #[serde(default)]
-    text: String,
-    #[serde(default)]
-    id: Option<String>,
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    input: Option<serde_json::Value>,
-}
-
-#[derive(Deserialize)]
-struct AnthropicUsage {
-    input_tokens: u32,
-    output_tokens: u32,
-    #[serde(default)]
-    cache_read_input_tokens: Option<u32>,
-    #[serde(default)]
-    cache_creation_input_tokens: Option<u32>,
-}
-
-// ── Anthropic SSE event types ──
+// ── Anthropic SSE event types (parse-only) ──
 
 #[derive(Deserialize)]
 struct SseEvent {
@@ -216,7 +107,7 @@ fn translate_request(request: &ChatCompletionRequest) -> AnthropicRequest {
                 role: "user".to_string(),
                 content: AnthropicContent::Blocks(vec![AnthropicContentBlock::ToolResult {
                     tool_use_id,
-                    content: content_str,
+                    content: ToolResultContent::Text(content_str),
                 }]),
             });
         } else if msg.role == Role::Assistant
@@ -310,7 +201,7 @@ fn translate_request(request: &ChatCompletionRequest) -> AnthropicRequest {
     let system = if system_parts.is_empty() {
         None
     } else {
-        Some(system_parts.join("\n"))
+        Some(AnthropicSystem::Text(system_parts.join("\n")))
     };
 
     // B2: When tool_choice is "none", omit tools and tool_choice entirely.
@@ -418,29 +309,27 @@ fn translate_response(resp: AnthropicResponse) -> ChatCompletionResponse {
     let mut tool_calls = Vec::new();
     let mut reasoning_content = None;
 
-    for block in &resp.content {
-        match block.kind.as_str() {
-            "thinking" => {
-                if !block.text.is_empty() {
-                    reasoning_content = Some(block.text.clone());
+    for block in resp.content {
+        match block {
+            AnthropicContentBlock::Text { text } => content_text.push_str(&text),
+            AnthropicContentBlock::Thinking { thinking, .. } => {
+                if !thinking.is_empty() {
+                    reasoning_content = Some(thinking);
                 }
             }
-            "text" => content_text.push_str(&block.text),
-            "tool_use" => {
-                if let (Some(id), Some(name), Some(input)) = (&block.id, &block.name, &block.input)
-                {
-                    tool_calls.push(ToolCall {
-                        index: None,
-                        id: id.clone(),
-                        kind: ToolType::Function,
-                        function: FunctionCall {
-                            name: name.clone(),
-                            arguments: serde_json::to_string(input).unwrap_or_default(),
-                        },
-                    });
-                }
+            AnthropicContentBlock::ToolUse { id, name, input } => {
+                tool_calls.push(ToolCall {
+                    index: None,
+                    id,
+                    kind: ToolType::Function,
+                    function: FunctionCall {
+                        name,
+                        arguments: serde_json::to_string(&input).unwrap_or_default(),
+                    },
+                });
             }
-            _ => {}
+            // Image and ToolResult do not appear in assistant responses.
+            AnthropicContentBlock::Image { .. } | AnthropicContentBlock::ToolResult { .. } => {}
         }
     }
 
