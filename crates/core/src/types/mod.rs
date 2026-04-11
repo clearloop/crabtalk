@@ -1,3 +1,8 @@
+pub use anthropic::{
+    AnthropicContent, AnthropicContentBlock, AnthropicMessage, AnthropicRequest, AnthropicResponse,
+    AnthropicSystem, AnthropicTool, AnthropicUsage, DEFAULT_MAX_TOKENS, ThinkingConfig,
+    ToolResultContent,
+};
 pub use audio::AudioSpeechRequest;
 pub use chat::{
     ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice,
@@ -11,6 +16,7 @@ pub use image::ImageRequest;
 pub use model::{Model, ModelList};
 pub use multipart::MultipartField;
 
+mod anthropic;
 mod audio;
 mod chat;
 mod embedding;
