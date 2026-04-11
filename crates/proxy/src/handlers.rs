@@ -1,4 +1,4 @@
-use crate::{AppState, auth::KeyName};
+use crate::{AppState, auth::KeyName, state::UsageEvent};
 use axum::{
     Extension, Json,
     extract::{Multipart, State},
@@ -17,10 +17,10 @@ use crabllm_provider::Deployment;
 use futures::StreamExt;
 use rand::Rng;
 use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+    atomic::{AtomicBool, AtomicU32, Ordering},
 };
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 fn record_duration(ctx: &RequestContext, status: &'static str) {
     metrics::histogram!("crabllm_request_duration_seconds",
@@ -59,6 +59,41 @@ fn record_tokens(ctx: &RequestContext, prompt: u32, completion: u32) {
             "direction" => "completion",
         )
         .increment(completion as u64);
+    }
+}
+
+fn emit_usage<S: Storage, P: Provider>(
+    state: &AppState<S, P>,
+    ctx: &RequestContext,
+    endpoint: &'static str,
+    tokens_in: u32,
+    tokens_out: u32,
+    status: u16,
+    error: Option<String>,
+) {
+    let Some(tx) = state.usage_events.as_ref() else {
+        return;
+    };
+    let _ = tx.send(UsageEvent {
+        timestamp: SystemTime::now(),
+        request_id: ctx.request_id.clone(),
+        key_name: ctx.key_name.clone(),
+        model: ctx.model.clone(),
+        provider: ctx.provider.clone(),
+        endpoint,
+        tokens_in,
+        tokens_out,
+        duration_ms: ctx.started_at.elapsed().as_millis() as u64,
+        status,
+        error,
+    });
+}
+
+fn http_status_from_error(e: &crabllm_core::Error) -> u16 {
+    match e {
+        crabllm_core::Error::Provider { status, .. } => *status,
+        crabllm_core::Error::Timeout => 504,
+        _ => 500,
     }
 }
 
@@ -130,14 +165,30 @@ where
                     let extensions = state.extensions.clone();
                     let ctx = Arc::new(ctx);
                     let errored = Arc::new(AtomicBool::new(false));
+                    // Relaxed loads/stores on these atomics are sound: the
+                    // `done` stream-once only polls after the upstream
+                    // `.then` stream has yielded `Poll::Ready(None)`, which
+                    // happens-after every per-chunk future resolves. The
+                    // `.chain` combinator provides the ordering; the atomic
+                    // type is just for interior mutability across clones.
+                    let tokens_in = Arc::new(AtomicU32::new(0));
+                    let tokens_out = Arc::new(AtomicU32::new(0));
+                    let first_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
                     let ctx_done = ctx.clone();
                     let errored_done = errored.clone();
+                    let tokens_in_done = tokens_in.clone();
+                    let tokens_out_done = tokens_out.clone();
+                    let first_error_done = first_error.clone();
+                    let state_done = state.clone();
 
                     let observed = stream.then(move |result| {
                         let extensions = extensions.clone();
                         let ctx = ctx.clone();
                         let errored = errored.clone();
+                        let tokens_in = tokens_in.clone();
+                        let tokens_out = tokens_out.clone();
+                        let first_error = first_error.clone();
                         async move {
                             match &result {
                                 Ok(chunk) => {
@@ -149,6 +200,9 @@ where
                                             usage.prompt_tokens,
                                             usage.completion_tokens,
                                         );
+                                        tokens_in.store(usage.prompt_tokens, Ordering::Relaxed);
+                                        tokens_out
+                                            .store(usage.completion_tokens, Ordering::Relaxed);
                                     }
                                     for ext in extensions.iter() {
                                         ext.on_chunk(&ctx, chunk).await;
@@ -156,6 +210,12 @@ where
                                 }
                                 Err(error) => {
                                     errored.store(true, Ordering::Relaxed);
+                                    {
+                                        let mut slot = first_error.lock().unwrap();
+                                        if slot.is_none() {
+                                            *slot = Some(error.to_string());
+                                        }
+                                    }
                                     for ext in extensions.iter() {
                                         ext.on_error(&ctx, error).await;
                                     }
@@ -181,13 +241,22 @@ where
                     });
 
                     // Record duration once when the stream terminates.
+                    // The wire status is always 200 here — headers were
+                    // sent before the first chunk, so mid-stream failures
+                    // surface via UsageEvent::error, not status.
                     let done = futures::stream::once(async move {
-                        let status = if errored_done.load(Ordering::Relaxed) {
-                            "5xx"
-                        } else {
-                            "2xx"
-                        };
-                        record_duration(&ctx_done, status);
+                        let errored = errored_done.load(Ordering::Relaxed);
+                        record_duration(&ctx_done, if errored { "5xx" } else { "2xx" });
+                        let error = first_error_done.lock().unwrap().take();
+                        emit_usage(
+                            &state_done,
+                            &ctx_done,
+                            "chat.completions",
+                            tokens_in_done.load(Ordering::Relaxed),
+                            tokens_out_done.load(Ordering::Relaxed),
+                            200,
+                            error,
+                        );
                         Ok::<_, std::convert::Infallible>(Event::default().data("[DONE]"))
                     });
                     let full_stream = sse_stream.chain(done);
@@ -206,6 +275,15 @@ where
             ext.on_error(&ctx, &e).await;
         }
         record_duration(&ctx, "5xx");
+        emit_usage(
+            &state,
+            &ctx,
+            "chat.completions",
+            0,
+            0,
+            http_status_from_error(&e),
+            Some(e.to_string()),
+        );
         error_response(e)
     } else {
         // Non-streaming: check cache first.
@@ -221,10 +299,16 @@ where
         for deployment in &deployments {
             match try_chat_with_retries(deployment, &request).await {
                 Ok(resp) => {
-                    if let Some(ref usage) = resp.usage {
-                        record_tokens(&ctx, usage.prompt_tokens, usage.completion_tokens);
+                    let (pt, ct) = resp
+                        .usage
+                        .as_ref()
+                        .map(|u| (u.prompt_tokens, u.completion_tokens))
+                        .unwrap_or((0, 0));
+                    if pt > 0 || ct > 0 {
+                        record_tokens(&ctx, pt, ct);
                     }
                     record_duration(&ctx, "2xx");
+                    emit_usage(&state, &ctx, "chat.completions", pt, ct, 200, None);
                     for ext in state.extensions.iter() {
                         ext.on_response(&ctx, &request, &resp).await;
                     }
@@ -240,6 +324,15 @@ where
             ext.on_error(&ctx, &e).await;
         }
         record_duration(&ctx, error_status(&e));
+        emit_usage(
+            &state,
+            &ctx,
+            "chat.completions",
+            0,
+            0,
+            http_status_from_error(&e),
+            Some(e.to_string()),
+        );
         error_response(e)
     }
 }
@@ -300,6 +393,15 @@ where
         match try_embedding_with_retries(deployment, &request).await {
             Ok(resp) => {
                 record_duration(&ctx, "2xx");
+                emit_usage(
+                    &state,
+                    &ctx,
+                    "embeddings",
+                    resp.usage.prompt_tokens,
+                    0,
+                    200,
+                    None,
+                );
                 return Json(resp).into_response();
             }
             Err(e) => last_err = Some(e),
@@ -312,6 +414,15 @@ where
         ext.on_error(&ctx, &e).await;
     }
     record_duration(&ctx, error_status(&e));
+    emit_usage(
+        &state,
+        &ctx,
+        "embeddings",
+        0,
+        0,
+        http_status_from_error(&e),
+        Some(e.to_string()),
+    );
     error_response(e)
 }
 
@@ -399,6 +510,7 @@ where
         {
             Ok((bytes, content_type)) => {
                 record_duration(&ctx, "2xx");
+                emit_usage(&state, &ctx, "images.generations", 0, 0, 200, None);
                 return ([(axum::http::header::CONTENT_TYPE, content_type)], bytes).into_response();
             }
             Err(e) => last_err = Some(e),
@@ -411,6 +523,15 @@ where
         ext.on_error(&ctx, &e).await;
     }
     record_duration(&ctx, error_status(&e));
+    emit_usage(
+        &state,
+        &ctx,
+        "images.generations",
+        0,
+        0,
+        http_status_from_error(&e),
+        Some(e.to_string()),
+    );
     error_response(e)
 }
 
@@ -475,6 +596,7 @@ where
         {
             Ok((bytes, content_type)) => {
                 record_duration(&ctx, "2xx");
+                emit_usage(&state, &ctx, "audio.speech", 0, 0, 200, None);
                 return ([(axum::http::header::CONTENT_TYPE, content_type)], bytes).into_response();
             }
             Err(e) => last_err = Some(e),
@@ -487,6 +609,15 @@ where
         ext.on_error(&ctx, &e).await;
     }
     record_duration(&ctx, error_status(&e));
+    emit_usage(
+        &state,
+        &ctx,
+        "audio.speech",
+        0,
+        0,
+        http_status_from_error(&e),
+        Some(e.to_string()),
+    );
     error_response(e)
 }
 
@@ -601,6 +732,7 @@ where
         {
             Ok((bytes, content_type)) => {
                 record_duration(&ctx, "2xx");
+                emit_usage(&state, &ctx, "audio.transcriptions", 0, 0, 200, None);
                 return ([(axum::http::header::CONTENT_TYPE, content_type)], bytes).into_response();
             }
             Err(e) => last_err = Some(e),
@@ -613,6 +745,15 @@ where
         ext.on_error(&ctx, &e).await;
     }
     record_duration(&ctx, error_status(&e));
+    emit_usage(
+        &state,
+        &ctx,
+        "audio.transcriptions",
+        0,
+        0,
+        http_status_from_error(&e),
+        Some(e.to_string()),
+    );
     error_response(e)
 }
 
