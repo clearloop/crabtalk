@@ -19,6 +19,7 @@
 // is justified because `ModelContainer` is already `Sendable` and we
 // never mutate the wrapper after construction.
 
+import CoreImage
 import Foundation
 import MLXHuggingFace
 import MLXLLM
@@ -247,13 +248,21 @@ func blockingAwait<T>(_ op: @Sendable @escaping () async throws -> T) throws -> 
 ///
 /// Content handling:
 ///   * Plain string content (`"content": "..."`) is used as-is.
-///   * Array-of-parts content (`"content": [{"type":"text","text":"..."}, ...]`)
-///     is flattened by concatenating every `text` part. Image / audio
-///     parts are dropped — Phase 5 is text-only. A future VLM phase
-///     will replace this with a richer parser.
+///   * Array-of-parts content (`"content": [{"type":"text","text":"..."},
+///     {"type":"image_url","image_url":{"url":"..."}}]`) is walked:
+///     text parts concatenated into `content`, image parts decoded
+///     into `UserInput.Image` values and attached to the message.
+///     Audio and other unknown part types are dropped.
 ///   * Missing / null / non-string / non-array content becomes "".
 ///
-/// Known limitations (text-only scope):
+/// Image URLs in `image_url` parts may be any of:
+///   * `data:image/*;base64,...` — base64-decoded inline.
+///   * `http(s)://...` — synchronously fetched (safe: the FFI call runs
+///     on a dedicated tokio `spawn_blocking` worker, not a cooperative
+///     executor).
+///   * `file:///...` — passed through as `.url(URL)` for lazy load.
+///
+/// Known limitations:
 ///   * `tool_call_id` is dropped. mlx-swift-lm's `Chat.Message.tool(_:)`
 ///     takes only content; the tokenizer chat template is expected to
 ///     do the right thing based on ordering alone.
@@ -261,10 +270,13 @@ func blockingAwait<T>(_ op: @Sendable @escaping () async throws -> T) throws -> 
 ///     subsequent `system` messages are added to `history` as
 ///     `.system(...)` and whether they take effect depends on the
 ///     model's chat template.
+///   * Images on the extracted system prompt are dropped —
+///     `ChatSession.instructions` is a plain String.
 struct DecodedMessages {
     let instructions: String?
     let history: [Chat.Message]
     let lastPrompt: String
+    let lastImages: [UserInput.Image]
     let lastRole: Chat.Message.Role
 }
 
@@ -282,7 +294,8 @@ func decodeMessages(_ json: String) throws -> DecodedMessages {
     var messages = arr
     var instructions: String? = nil
     if messages.first?["role"] as? String == "system" {
-        instructions = flattenContent(messages.removeFirst()["content"])
+        let parsed = try parseContent(messages.removeFirst()["content"])
+        instructions = parsed.text.isEmpty ? nil : parsed.text
     }
 
     guard let last = messages.last else {
@@ -295,54 +308,156 @@ func decodeMessages(_ json: String) throws -> DecodedMessages {
     case "system": .system
     default: .user
     }
-    let lastContent = flattenContent(last["content"]) ?? ""
+    let lastParsed = try parseContent(last["content"])
 
     var history: [Chat.Message] = []
     for msg in messages.dropLast() {
-        let content = flattenContent(msg["content"]) ?? ""
+        let parsed = try parseContent(msg["content"])
         switch msg["role"] as? String {
-        case "user":
-            history.append(.user(content))
         case "assistant":
-            history.append(.assistant(content))
+            history.append(.assistant(parsed.text, images: parsed.images))
         case "system":
-            history.append(.system(content))
+            history.append(.system(parsed.text, images: parsed.images))
         case "tool":
-            history.append(.tool(content))
+            history.append(.tool(parsed.text))
         default:
-            history.append(.user(content))
+            history.append(.user(parsed.text, images: parsed.images))
         }
     }
 
     return DecodedMessages(
         instructions: instructions,
         history: history,
-        lastPrompt: lastContent,
+        lastPrompt: lastParsed.text,
+        lastImages: lastParsed.images,
         lastRole: lastRole
     )
 }
 
-/// Collapse an OpenAI-shape `content` payload into a plain string.
-/// Returns nil for NULL / empty / unrecognized input.
-func flattenContent(_ value: Any?) -> String? {
-    guard let value = value else { return nil }
+/// Walk an OpenAI-shape `content` payload and extract text + images.
+///
+/// Plain string content round-trips as `(content, [])`. Array-of-parts
+/// content is split: `text` parts accumulate into the text buffer,
+/// `image_url` parts are decoded into `UserInput.Image`. Any other part
+/// type is dropped. NULL / unrecognized input yields `("", [])`.
+func parseContent(_ value: Any?) throws -> (text: String, images: [UserInput.Image]) {
+    guard let value = value else { return ("", []) }
     if let s = value as? String {
-        return s.isEmpty ? nil : s
+        return (s, [])
     }
-    if let parts = value as? [[String: Any]] {
-        var buf = ""
-        for part in parts {
-            // OpenAI vision parts are `{"type":"text","text":"..."}`.
-            // Only text parts are supported in Phase 5.
-            if let type = part["type"] as? String, type == "text",
-               let text = part["text"] as? String
-            {
-                buf.append(text)
+    guard let parts = value as? [[String: Any]] else {
+        return ("", [])
+    }
+    var text = ""
+    var images: [UserInput.Image] = []
+    for part in parts {
+        switch part["type"] as? String {
+        case "text":
+            if let t = part["text"] as? String { text.append(t) }
+        case "image_url":
+            guard let urlObj = part["image_url"] as? [String: Any],
+                  let urlStr = urlObj["url"] as? String, !urlStr.isEmpty
+            else {
+                throw FFIError.invalidArg("image_url part is missing url")
             }
+            images.append(try decodeImageURL(urlStr))
+        default:
+            continue
         }
-        return buf.isEmpty ? nil : buf
     }
-    return nil
+    return (text, images)
+}
+
+/// Decode an OpenAI `image_url.url` into a `UserInput.Image`.
+/// Supports inline `data:` URIs, remote `http(s)://`, and local
+/// `file://` schemes.
+func decodeImageURL(_ urlStr: String) throws -> UserInput.Image {
+    if urlStr.hasPrefix("data:") {
+        return try decodeDataURL(urlStr)
+    }
+    guard let url = URL(string: urlStr) else {
+        throw FFIError.invalidArg("image_url.url is not a valid URL")
+    }
+    switch url.scheme?.lowercased() {
+    case "http", "https":
+        let data = try fetchImageBytes(url)
+        guard let image = CIImage(data: data) else {
+            throw FFIError.invalidArg("image_url payload is not a decodable image")
+        }
+        return .ciImage(image)
+    case "file":
+        return .url(url)
+    default:
+        throw FFIError.invalidArg("image_url scheme must be data, http(s), or file")
+    }
+}
+
+/// Synchronously fetch bytes from an `http(s)` URL with a bounded
+/// timeout. `URLSession` enforces per-request and per-resource
+/// deadlines on its own, and the outer semaphore wait guards against
+/// any Darwin-internal hang by timing out one second past the resource
+/// deadline — a hung server cannot pin the calling worker forever.
+/// `.ephemeral` avoids caching fetched images in memory.
+private let imageFetchRequestTimeout: TimeInterval = 15
+private let imageFetchResourceTimeout: TimeInterval = 30
+
+func fetchImageBytes(_ url: URL) throws -> Data {
+    let config = URLSessionConfiguration.ephemeral
+    config.timeoutIntervalForRequest = imageFetchRequestTimeout
+    config.timeoutIntervalForResource = imageFetchResourceTimeout
+    let session = URLSession(configuration: config)
+    defer { session.finishTasksAndInvalidate() }
+
+    let semaphore = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var resultData: Data?
+    nonisolated(unsafe) var resultError: Error?
+    nonisolated(unsafe) var statusCode: Int = 0
+
+    let task = session.dataTask(with: url) { data, response, error in
+        resultError = error
+        resultData = data
+        if let http = response as? HTTPURLResponse {
+            statusCode = http.statusCode
+        }
+        semaphore.signal()
+    }
+    task.resume()
+
+    let waitDeadline = DispatchTime.now() + imageFetchResourceTimeout + 1
+    if semaphore.wait(timeout: waitDeadline) == .timedOut {
+        task.cancel()
+        throw FFIError.invalidArg("image_url fetch exceeded resource timeout")
+    }
+    if let error = resultError {
+        throw FFIError.invalidArg("image_url fetch failed: \(error)")
+    }
+    if statusCode != 0 && !(200...299).contains(statusCode) {
+        throw FFIError.invalidArg("image_url fetch returned HTTP \(statusCode)")
+    }
+    guard let data = resultData else {
+        throw FFIError.invalidArg("image_url fetch returned no data")
+    }
+    return data
+}
+
+/// Decode a `data:[<mediatype>];base64,<payload>` URL. Anchors on the
+/// `;base64,` sentinel rather than the first comma so mediatype
+/// parameters that legitimately contain commas (RFC 2045 quoted
+/// strings) cannot split the URL at the wrong offset. Non-base64 data
+/// URLs are rejected — the OpenAI spec only defines the base64 form
+/// for `image_url`.
+func decodeDataURL(_ urlStr: String) throws -> UserInput.Image {
+    guard let sentinel = urlStr.range(of: ";base64,") else {
+        throw FFIError.invalidArg("data URL must be base64-encoded (missing ;base64,)")
+    }
+    let payload = String(urlStr[sentinel.upperBound...])
+    guard let data = Data(base64Encoded: payload) else {
+        throw FFIError.invalidArg("data URL base64 payload failed to decode")
+    }
+    guard let image = CIImage(data: data) else {
+        throw FFIError.invalidArg("data URL payload is not a decodable image")
+    }
+    return .ciImage(image)
 }
 
 // MARK: - Tool parsing
@@ -521,7 +636,7 @@ func runGenerationWithContainer(
         let stream = chat.streamDetails(
             to: decoded.lastPrompt,
             role: decoded.lastRole,
-            images: [],
+            images: decoded.lastImages,
             videos: []
         )
         for try await gen in stream {
