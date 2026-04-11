@@ -50,19 +50,48 @@ impl MlxProvider {
     /// is not cached. Use [`download::download_model`] to download
     /// explicitly before calling the provider.
     fn resolve_model_dir(&self, model_id: &str) -> Result<PathBuf, Error> {
-        let as_path = Path::new(model_id);
-        if as_path.exists() && as_path.is_dir() {
-            return Ok(as_path.to_path_buf());
-        }
-
-        let repo_id = crate::registry::resolve(model_id).unwrap_or(model_id);
-
-        download::cached_model_path(repo_id).ok_or_else(|| {
+        self.lookup_cached_model_dir(model_id).ok_or_else(|| {
+            let repo_id = crate::registry::resolve(model_id).unwrap_or(model_id);
             Error::Internal(format!(
                 "mlx: model not downloaded: {repo_id}. \
                  Use download::download_model() first."
             ))
         })
+    }
+
+    fn lookup_cached_model_dir(&self, model_id: &str) -> Option<PathBuf> {
+        let as_path = Path::new(model_id);
+        if as_path.exists() && as_path.is_dir() {
+            return Some(as_path.to_path_buf());
+        }
+        let repo_id = crate::registry::resolve(model_id).unwrap_or(model_id);
+        download::cached_model_path(repo_id)
+    }
+
+    /// Unload a model from the pool.
+    ///
+    /// Accepts the same inputs as a generate call: a local directory
+    /// path, a full HuggingFace repo id, or a registry alias. If the
+    /// model is not cached on disk (never downloaded, already wiped)
+    /// this is a no-op — the pool's evict is already idempotent and a
+    /// caller asking to unload an unloaded model got what they wanted.
+    ///
+    /// Generations already in flight for this model continue
+    /// uninterrupted: the Swift side holds a strong reference to the
+    /// `ModelContainer` for the duration of the call, so dropping it
+    /// from the pool's slot table only releases the pool's reference.
+    /// The next request for this model reloads from disk.
+    pub fn unload(&self, model_id: &str) {
+        if let Some(dir) = self.lookup_cached_model_dir(model_id) {
+            self.pool.evict(&dir.to_string_lossy());
+        }
+    }
+
+    /// Evict every loaded model and stop the idle monitor. The pool
+    /// handle remains valid — subsequent requests will load models
+    /// on demand but no new idle sweep will run.
+    pub fn unload_all(&self) {
+        self.pool.stop_all();
     }
 }
 
