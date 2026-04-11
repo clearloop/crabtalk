@@ -5,6 +5,6 @@
 //! so the rest of the proxy pipeline (extensions, provider dispatch) is
 //! unchanged, then translate the response back to Anthropic's wire format.
 
-pub use translate::to_chat_completion;
+pub use translate::{from_chat_completion, to_chat_completion};
 
 mod translate;

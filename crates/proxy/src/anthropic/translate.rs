@@ -14,9 +14,10 @@
 //! - `disable_parallel_tool_use` on `tool_choice`.
 
 use crabllm_core::{
-    AnthropicContent, AnthropicContentBlock, AnthropicMessage, AnthropicRequest, AnthropicSystem,
-    AnthropicTool, ChatCompletionRequest, FunctionCall, FunctionDef, Message, Role, Stop, Tool,
-    ToolCall, ToolChoice, ToolResultContent, ToolType,
+    AnthropicContent, AnthropicContentBlock, AnthropicMessage, AnthropicRequest, AnthropicResponse,
+    AnthropicSystem, AnthropicTool, AnthropicUsage, ChatCompletionRequest, ChatCompletionResponse,
+    Error, FinishReason, FunctionCall, FunctionDef, Message, Role, Stop, Tool, ToolCall,
+    ToolChoice, ToolResultContent, ToolType, Usage,
 };
 
 pub fn to_chat_completion(req: AnthropicRequest) -> ChatCompletionRequest {
@@ -288,5 +289,100 @@ fn translate_tool_choice(value: &serde_json::Value) -> Option<ToolChoice> {
             }),
         "none" => Some(ToolChoice::Disabled),
         _ => None,
+    }
+}
+
+/// Translate an internal `ChatCompletionResponse` back to the Anthropic
+/// Messages API response wire shape.
+///
+/// Errors when the response has zero choices or missing usage — both indicate
+/// a provider bug or transport failure, and papering over them with empty
+/// defaults would corrupt billing and hide real problems.
+pub fn from_chat_completion(resp: ChatCompletionResponse) -> Result<AnthropicResponse, Error> {
+    let choice = resp
+        .choices
+        .into_iter()
+        .next()
+        .ok_or_else(|| Error::Internal("provider returned zero choices".into()))?;
+    let usage = resp
+        .usage
+        .ok_or_else(|| Error::Internal("provider returned no usage".into()))?;
+
+    let stop_reason = choice.finish_reason.as_ref().map(finish_reason_to_stop);
+    let content = message_to_blocks(choice.message);
+
+    Ok(AnthropicResponse {
+        id: resp.id,
+        r#type: "message".to_string(),
+        role: "assistant".to_string(),
+        model: resp.model,
+        content,
+        stop_reason,
+        stop_sequence: None,
+        usage: usage_to_anthropic(usage),
+    })
+}
+
+fn message_to_blocks(msg: Message) -> Vec<AnthropicContentBlock> {
+    let mut blocks = Vec::new();
+
+    if let Some(reasoning) = msg.reasoning_content
+        && !reasoning.is_empty()
+    {
+        blocks.push(AnthropicContentBlock::Thinking {
+            thinking: reasoning,
+            signature: None,
+        });
+    }
+
+    if let Some(text) = msg.content.as_ref().and_then(|v| v.as_str())
+        && !text.is_empty()
+    {
+        blocks.push(AnthropicContentBlock::Text {
+            text: text.to_string(),
+        });
+    }
+
+    if let Some(tool_calls) = msg.tool_calls {
+        for tc in tool_calls {
+            let input = serde_json::from_str(&tc.function.arguments)
+                .unwrap_or(serde_json::Value::Object(Default::default()));
+            blocks.push(AnthropicContentBlock::ToolUse {
+                id: tc.id,
+                name: tc.function.name,
+                input,
+            });
+        }
+    }
+
+    // Anthropic responses always carry at least one block; emit an empty text
+    // block rather than a bare empty array so SDKs don't choke.
+    if blocks.is_empty() {
+        blocks.push(AnthropicContentBlock::Text {
+            text: String::new(),
+        });
+    }
+
+    blocks
+}
+
+fn finish_reason_to_stop(reason: &FinishReason) -> String {
+    match reason {
+        FinishReason::Stop => "end_turn".to_string(),
+        FinishReason::Length => "max_tokens".to_string(),
+        FinishReason::ToolCalls => "tool_use".to_string(),
+        // Not a documented Anthropic value, but honesty beats papering over a
+        // safety event. SDKs treat unknown stop_reason as a plain string.
+        FinishReason::ContentFilter => "content_filter".to_string(),
+        FinishReason::Custom(s) => s.clone(),
+    }
+}
+
+fn usage_to_anthropic(u: Usage) -> AnthropicUsage {
+    AnthropicUsage {
+        input_tokens: u.prompt_tokens,
+        output_tokens: u.completion_tokens,
+        cache_read_input_tokens: u.prompt_cache_hit_tokens,
+        cache_creation_input_tokens: u.prompt_cache_miss_tokens,
     }
 }
