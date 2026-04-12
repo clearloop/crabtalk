@@ -24,11 +24,11 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct LlamaCppProvider {
     pool: Arc<ServerPool>,
-    client: reqwest::Client,
+    client: crabllm_provider::HttpClient,
 }
 
 impl LlamaCppProvider {
-    pub fn new(pool: Arc<ServerPool>, client: reqwest::Client) -> Self {
+    pub fn new(pool: Arc<ServerPool>, client: crabllm_provider::HttpClient) -> Self {
         Self { pool, client }
     }
 }

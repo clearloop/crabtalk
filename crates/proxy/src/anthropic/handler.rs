@@ -23,7 +23,7 @@ use axum::{
         sse::{Event, Sse},
     },
 };
-use crabllm_core::{AnthropicRequest, ApiError, Provider, RequestContext, Storage};
+use crabllm_core::{ApiError, Provider, RequestContext, Storage};
 use futures::StreamExt;
 use std::sync::{
     Arc, Mutex,
@@ -33,19 +33,36 @@ use std::time::Instant;
 
 const ENDPOINT: &str = "messages";
 
+/// Lightweight peek for routing the Anthropic request.
+#[derive(serde::Deserialize)]
+struct AnthropicPeek {
+    model: String,
+    #[serde(default)]
+    stream: Option<bool>,
+}
+
 /// POST /v1/messages
 pub async fn messages<S, P>(
     State(state): State<AppState<S, P>>,
     Extension(key_name): Extension<KeyName>,
-    Json(anthropic_req): Json<AnthropicRequest>,
+    raw_body: axum::body::Bytes,
 ) -> Response
 where
     S: Storage + 'static,
     P: Provider + 'static,
 {
-    let mut request = to_chat_completion(anthropic_req);
-
-    let model = state.registry.resolve(&request.model).to_string();
+    let peek: AnthropicPeek = match serde_json::from_slice(&raw_body) {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ApiError::new(e.to_string(), "invalid_request_error")),
+            )
+                .into_response();
+        }
+    };
+    let is_stream = peek.stream == Some(true);
+    let model = state.registry.resolve(&peek.model).to_string();
     let deployments = match state.registry.dispatch_list(&model) {
         Some(list) => list,
         None => {
@@ -60,6 +77,28 @@ where
         }
     };
 
+    // Raw byte proxy: non-streaming, no extensions, Anthropic-compatible upstream.
+    if !is_stream
+        && state.extensions.is_empty()
+        && deployments.iter().all(|d| d.provider.is_anthropic_compat())
+    {
+        return handle_raw_anthropic(&state, key_name, &model, &deployments, raw_body).await;
+    }
+
+    // Full deserialization + translation for streaming, extensions, or
+    // non-Anthropic upstreams.
+    let anthropic_req: crabllm_core::AnthropicRequest = match serde_json::from_slice(&raw_body) {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ApiError::new(e.to_string(), "invalid_request_error")),
+            )
+                .into_response();
+        }
+    };
+    let mut request = to_chat_completion(anthropic_req);
+
     let provider_name = state
         .registry
         .provider_name(&model)
@@ -71,7 +110,7 @@ where
         model: model.clone(),
         provider: provider_name,
         key_name: key_name.0,
-        is_stream: request.stream == Some(true),
+        is_stream,
         started_at: Instant::now(),
     };
 
@@ -85,7 +124,7 @@ where
         }
     }
 
-    if ctx.is_stream {
+    if is_stream {
         request
             .extra
             .entry("stream_options".to_string())
@@ -284,5 +323,85 @@ where
     }
     record_duration(&ctx, error_status(&e));
     emit_usage_error(&state, &ctx, ENDPOINT, &e);
+    error_response(e)
+}
+
+/// Non-streaming raw byte proxy for Anthropic-compatible providers.
+async fn handle_raw_anthropic<S: Storage, P: Provider>(
+    state: &AppState<S, P>,
+    key_name: KeyName,
+    model: &str,
+    deployments: &[&crabllm_provider::Deployment<P>],
+    raw_body: axum::body::Bytes,
+) -> Response {
+    use crate::handlers::with_timeout;
+
+    #[derive(serde::Deserialize)]
+    struct AnthropicUsagePeek {
+        usage: Option<AnthropicUsageFields>,
+    }
+    #[derive(serde::Deserialize)]
+    struct AnthropicUsageFields {
+        #[serde(default)]
+        input_tokens: u32,
+        #[serde(default)]
+        output_tokens: u32,
+    }
+
+    let provider_name = state
+        .registry
+        .provider_name(model)
+        .unwrap_or_default()
+        .to_string();
+
+    let ctx = RequestContext {
+        request_id: uuid::Uuid::new_v4().to_string(),
+        model: model.to_string(),
+        provider: provider_name,
+        key_name: key_name.0,
+        is_stream: false,
+        started_at: Instant::now(),
+    };
+
+    let mut last_err = None;
+    for deployment in deployments {
+        match with_timeout(
+            deployment.timeout,
+            deployment.provider.anthropic_messages_raw(raw_body.clone()),
+        )
+        .await
+        {
+            Ok(resp_bytes) => {
+                let (pt, ct) = sonic_rs::from_slice::<AnthropicUsagePeek>(&resp_bytes)
+                    .ok()
+                    .and_then(|p| p.usage)
+                    .map(|u| (u.input_tokens, u.output_tokens))
+                    .unwrap_or((0, 0));
+                if pt > 0 || ct > 0 {
+                    record_tokens(&ctx, pt, ct);
+                }
+                record_duration(&ctx, "2xx");
+                emit_usage(state, &ctx, ENDPOINT, pt, ct, 200, None);
+                return (
+                    [(axum::http::header::CONTENT_TYPE, "application/json")],
+                    resp_bytes,
+                )
+                    .into_response();
+            }
+            Err(e) => {
+                if !e.is_transient() {
+                    record_duration(&ctx, error_status(&e));
+                    emit_usage_error(state, &ctx, ENDPOINT, &e);
+                    return error_response(e);
+                }
+                last_err = Some(e);
+            }
+        }
+    }
+
+    let e = last_err
+        .unwrap_or_else(|| crabllm_core::Error::Internal("no providers available".to_string()));
+    record_duration(&ctx, error_status(&e));
+    emit_usage_error(state, &ctx, ENDPOINT, &e);
     error_response(e)
 }

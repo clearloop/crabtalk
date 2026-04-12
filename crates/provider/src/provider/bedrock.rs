@@ -5,12 +5,14 @@ pub fn not_implemented(name: &str) -> Error {
 }
 
 #[cfg(feature = "provider-bedrock")]
-pub(crate) use self::sigv4::sign_request;
+pub(crate) use self::sigv4::sign_headers;
 
 // ── Converse API (feature-gated) ──
 
 #[cfg(feature = "provider-bedrock")]
 use crate::provider::schema;
+#[cfg(feature = "provider-bedrock")]
+use crate::{ByteStream, HttpClient};
 #[cfg(feature = "provider-bedrock")]
 use crabllm_core::{
     ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice, Delta,
@@ -364,7 +366,7 @@ fn translate_response(resp: ConverseResponse, model: &str) -> ChatCompletionResp
 
 #[cfg(feature = "provider-bedrock")]
 pub async fn chat_completion(
-    client: &reqwest::Client,
+    client: &HttpClient,
     region: &str,
     access_key: &str,
     secret_key: &str,
@@ -377,22 +379,26 @@ pub async fn chat_completion(
         request.model
     );
 
-    let req = sign_request(client, "POST", &url, &body, region, access_key, secret_key)?;
+    let signed = sign_headers("POST", &url, &body, region, access_key, secret_key)?;
+    let headers: Vec<(&str, &str)> = signed
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
     let resp = client
-        .execute(req)
+        .post(&url, &headers, body.into())
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
-    let status = resp.status().as_u16();
-    if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(Error::Provider { status, body });
+    if resp.status >= 400 {
+        let body = String::from_utf8_lossy(&resp.body).into_owned();
+        return Err(Error::Provider {
+            status: resp.status,
+            body,
+        });
     }
 
-    let bedrock_resp: ConverseResponse = resp
-        .json()
-        .await
-        .map_err(|e| Error::Internal(e.to_string()))?;
+    let bedrock_resp: ConverseResponse =
+        sonic_rs::from_slice(&resp.body).map_err(|e| Error::Internal(e.to_string()))?;
 
     Ok(translate_response(bedrock_resp, &request.model))
 }
@@ -512,7 +518,7 @@ fn parse_event_payload(buf: &mut Vec<u8>) -> Option<Vec<u8>> {
 
 #[cfg(feature = "provider-bedrock")]
 pub async fn chat_completion_stream(
-    client: &reqwest::Client,
+    client: &HttpClient,
     region: &str,
     access_key: &str,
     secret_key: &str,
@@ -526,35 +532,29 @@ pub async fn chat_completion_stream(
         request.model
     );
 
-    let req = sign_request(client, "POST", &url, &body, region, access_key, secret_key)?;
-    let resp = client
-        .execute(req)
-        .await
-        .map_err(|e| Error::Internal(e.to_string()))?;
-
-    let status = resp.status().as_u16();
-    if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(Error::Provider { status, body });
-    }
+    let signed = sign_headers("POST", &url, &body, region, access_key, secret_key)?;
+    let headers: Vec<(&str, &str)> = signed
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    let byte_stream = client.post_stream(&url, &headers, body.into()).await?;
 
     let model = model.to_string();
-    Ok(bedrock_event_stream(resp, model))
+    Ok(bedrock_event_stream(byte_stream, model))
 }
 
 #[cfg(feature = "provider-bedrock")]
-struct StreamState {
+struct BedrockStreamState {
     chunk_idx: u64,
     tool_call_idx: u32,
 }
 
 #[cfg(feature = "provider-bedrock")]
 fn bedrock_event_stream(
-    resp: reqwest::Response,
+    byte_stream: ByteStream,
     model: String,
 ) -> impl Stream<Item = Result<ChatCompletionChunk, Error>> {
-    let byte_stream = resp.bytes_stream();
-    let state = StreamState {
+    let state = BedrockStreamState {
         chunk_idx: 0,
         tool_call_idx: 0,
     };
@@ -562,7 +562,7 @@ fn bedrock_event_stream(
     stream::unfold(
         (byte_stream, Vec::<u8>::new(), model, state),
         |(mut byte_stream, mut buf, model, mut state)| async move {
-            use futures::TryStreamExt;
+            use futures::StreamExt;
 
             loop {
                 if let Some(payload) = parse_event_payload(&mut buf) {
@@ -758,15 +758,15 @@ fn bedrock_event_stream(
                 }
 
                 // Need more data from the wire.
-                match byte_stream.try_next().await {
-                    Ok(Some(bytes)) => buf.extend_from_slice(&bytes),
-                    Ok(None) => return None,
-                    Err(e) => {
+                match byte_stream.next().await {
+                    Some(Ok(bytes)) => buf.extend_from_slice(&bytes),
+                    Some(Err(e)) => {
                         return Some((
                             Err(Error::Internal(format!("stream error: {e}"))),
                             (byte_stream, buf, model, state),
                         ));
                     }
+                    None => return None,
                 }
             }
         },
@@ -787,21 +787,22 @@ mod sigv4 {
 
     const SERVICE: &str = "bedrock-runtime";
 
-    /// AWS SigV4-signed request builder. Constructs a reqwest::Request with
-    /// Authorization, x-amz-date, x-amz-content-sha256, and host headers.
-    pub fn sign_request(
-        client: &reqwest::Client,
+    /// AWS SigV4 header builder. Returns a list of (name, value) header pairs
+    /// that must be sent with the request (content-type, host, x-amz-date,
+    /// x-amz-content-sha256, authorization).
+    pub fn sign_headers(
         method: &str,
         url: &str,
         body: &[u8],
         region: &str,
         access_key: &str,
         secret_key: &str,
-    ) -> Result<reqwest::Request, crabllm_core::Error> {
-        let parsed = reqwest::Url::parse(url)
-            .map_err(|e| crabllm_core::Error::Internal(format!("bad url: {e}")))?;
+    ) -> Result<Vec<(String, String)>, crabllm_core::Error> {
+        let parsed: http::Uri = url.parse().map_err(|e: http::uri::InvalidUri| {
+            crabllm_core::Error::Internal(format!("bad url: {e}"))
+        })?;
         let host = parsed
-            .host_str()
+            .host()
             .ok_or_else(|| crabllm_core::Error::Internal("url has no host".to_string()))?;
         let path = parsed.path();
         let query = parsed.query().unwrap_or("");
@@ -837,23 +838,13 @@ mod sigv4 {
             "AWS4-HMAC-SHA256 Credential={access_key}/{credential_scope}, SignedHeaders={signed_headers}, Signature={signature}"
         );
 
-        let req = client
-            .request(
-                method
-                    .parse()
-                    .map_err(|e| crabllm_core::Error::Internal(format!("bad method: {e}")))?,
-                url,
-            )
-            .header("content-type", "application/json")
-            .header("host", host)
-            .header("x-amz-date", amz_date)
-            .header("x-amz-content-sha256", &content_hash)
-            .header("authorization", &authorization)
-            .body(body.to_vec())
-            .build()
-            .map_err(|e| crabllm_core::Error::Internal(format!("build request: {e}")))?;
-
-        Ok(req)
+        Ok(vec![
+            ("content-type".to_string(), "application/json".to_string()),
+            ("host".to_string(), host.to_string()),
+            ("x-amz-date".to_string(), amz_date.to_string()),
+            ("x-amz-content-sha256".to_string(), content_hash),
+            ("authorization".to_string(), authorization),
+        ])
     }
 
     fn hex_sha256(data: &[u8]) -> String {

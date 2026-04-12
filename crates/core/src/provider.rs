@@ -71,4 +71,41 @@ pub trait Provider: Send + Sync {
     ) -> impl Future<Output = Result<(Bytes, String), Error>> + Send {
         async { Err(Error::not_implemented("audio_transcription")) }
     }
+
+    /// Whether this provider speaks the OpenAI wire format and can forward
+    /// raw JSON bytes without deserialization.
+    fn is_openai_compat(&self) -> bool {
+        false
+    }
+
+    /// Whether this provider speaks the Anthropic wire format and can
+    /// forward raw `/v1/messages` bytes without translation.
+    fn is_anthropic_compat(&self) -> bool {
+        false
+    }
+
+    /// Forward raw OpenAI-format JSON body and return raw response bytes.
+    /// The default deserializes, calls [`chat_completion`](Self::chat_completion),
+    /// and re-serializes. OpenAI-compatible providers override to skip serde.
+    fn chat_completion_raw(
+        &self,
+        _model: &str,
+        raw_body: Bytes,
+    ) -> impl Future<Output = Result<Bytes, Error>> + Send {
+        async move {
+            let request: ChatCompletionRequest = serde_json::from_slice(&raw_body)?;
+            let resp = self.chat_completion(&request).await?;
+            Ok(Bytes::from(serde_json::to_vec(&resp)?))
+        }
+    }
+
+    /// Forward raw Anthropic-format JSON body and return raw response bytes.
+    /// The default translates Anthropic → OpenAI, calls [`chat_completion`],
+    /// and translates back. The Anthropic provider overrides to skip serde.
+    fn anthropic_messages_raw(
+        &self,
+        _raw_body: Bytes,
+    ) -> impl Future<Output = Result<Bytes, Error>> + Send {
+        async { Err(Error::not_implemented("anthropic_messages_raw")) }
+    }
 }
