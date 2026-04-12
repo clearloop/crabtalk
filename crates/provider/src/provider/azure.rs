@@ -47,6 +47,37 @@ pub async fn chat_completion(
     sonic_rs::from_slice(&bytes).map_err(|e| Error::Internal(e.to_string()))
 }
 
+/// Forward raw JSON bytes to an Azure OpenAI chat completions deployment,
+/// returning the response bytes without deserialization.
+pub async fn chat_completion_raw(
+    client: &reqwest::Client,
+    base_url: &str,
+    api_key: &str,
+    api_version: &str,
+    model: &str,
+    raw_body: Bytes,
+) -> Result<Bytes, Error> {
+    let url = azure_url(base_url, model, "chat/completions", api_version);
+    let resp = client
+        .post(&url)
+        .header("api-key", api_key)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(raw_body)
+        .send()
+        .await
+        .map_err(|e| Error::Internal(e.to_string()))?;
+
+    let status = resp.status().as_u16();
+    if status >= 400 {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(Error::Provider { status, body });
+    }
+
+    resp.bytes()
+        .await
+        .map_err(|e| Error::Internal(e.to_string()))
+}
+
 /// Send an embedding request to an Azure OpenAI deployment.
 pub async fn embedding(
     client: &reqwest::Client,

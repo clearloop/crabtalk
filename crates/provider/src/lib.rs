@@ -411,4 +411,54 @@ impl Provider for RemoteProvider {
             }
         }
     }
+
+    fn is_openai_compat(&self) -> bool {
+        matches!(self, RemoteProvider::Openai { .. } | RemoteProvider::Azure { .. })
+    }
+
+    async fn chat_completion_raw(
+        &self,
+        model: &str,
+        raw_body: Bytes,
+    ) -> Result<Bytes, Error> {
+        match self {
+            RemoteProvider::Openai {
+                client,
+                base_url,
+                api_key,
+            } => provider::openai::chat_completion_raw(client, base_url, api_key, raw_body).await,
+            RemoteProvider::Azure {
+                client,
+                base_url,
+                api_key,
+                api_version,
+            } => {
+                provider::azure::chat_completion_raw(
+                    client, base_url, api_key, api_version, model, raw_body,
+                )
+                .await
+            }
+            _ => {
+                let request: ChatCompletionRequest = serde_json::from_slice(&raw_body)?;
+                let resp = self.chat_completion(&request).await?;
+                Ok(Bytes::from(serde_json::to_vec(&resp)?))
+            }
+        }
+    }
+
+    fn is_anthropic_compat(&self) -> bool {
+        matches!(self, RemoteProvider::Anthropic { .. })
+    }
+
+    async fn anthropic_messages_raw(
+        &self,
+        raw_body: Bytes,
+    ) -> Result<Bytes, Error> {
+        match self {
+            RemoteProvider::Anthropic { client, api_key } => {
+                provider::anthropic::anthropic_messages_raw(client, api_key, raw_body).await
+            }
+            _ => Err(Error::not_implemented("anthropic_messages_raw")),
+        }
+    }
 }

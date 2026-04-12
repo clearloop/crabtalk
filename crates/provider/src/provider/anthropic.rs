@@ -1,5 +1,5 @@
 use crate::provider::schema;
-use bytes::{Buf, BytesMut};
+use bytes::{Buf, Bytes, BytesMut};
 use crabllm_core::{
     AnthropicContent, AnthropicContentBlock, AnthropicMessage, AnthropicRequest, AnthropicResponse,
     AnthropicSystem, AnthropicTool, AnthropicUsage, ChatCompletionChunk, ChatCompletionRequest,
@@ -389,6 +389,40 @@ fn apply_auth(req: reqwest::RequestBuilder, api_key: &str) -> reqwest::RequestBu
 }
 
 // ── Public API ──
+
+/// Forward raw Anthropic-format JSON bytes to the Messages API,
+/// returning the response bytes without deserialization.
+pub async fn anthropic_messages_raw(
+    client: &reqwest::Client,
+    api_key: &str,
+    raw_body: Bytes,
+) -> Result<Bytes, Error> {
+    let url = format!("{BASE_URL}/messages");
+    let mut req = client
+        .post(&url)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json");
+    if is_oauth_token(api_key) {
+        req = req.bearer_auth(api_key).header("anthropic-beta", OAUTH_BETA);
+    } else {
+        req = req.header("x-api-key", api_key);
+    }
+    let resp = req
+        .body(raw_body)
+        .send()
+        .await
+        .map_err(|e| Error::Internal(e.to_string()))?;
+
+    let status = resp.status().as_u16();
+    if status >= 400 {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(Error::Provider { status, body });
+    }
+
+    resp.bytes()
+        .await
+        .map_err(|e| Error::Internal(e.to_string()))
+}
 
 pub async fn chat_completion(
     client: &reqwest::Client,

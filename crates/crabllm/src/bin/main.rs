@@ -110,6 +110,37 @@ impl Provider for Dispatch {
             Self::Remote(p) => p.audio_transcription(model, fields).await,
         }
     }
+
+    fn is_openai_compat(&self) -> bool {
+        match self {
+            Self::Remote(p) => p.is_openai_compat(),
+        }
+    }
+
+    fn is_anthropic_compat(&self) -> bool {
+        match self {
+            Self::Remote(p) => p.is_anthropic_compat(),
+        }
+    }
+
+    async fn chat_completion_raw(
+        &self,
+        model: &str,
+        raw_body: Bytes,
+    ) -> Result<Bytes, Error> {
+        match self {
+            Self::Remote(p) => p.chat_completion_raw(model, raw_body).await,
+        }
+    }
+
+    async fn anthropic_messages_raw(
+        &self,
+        raw_body: Bytes,
+    ) -> Result<Bytes, Error> {
+        match self {
+            Self::Remote(p) => p.anthropic_messages_raw(raw_body).await,
+        }
+    }
 }
 
 async fn serve(config_path: PathBuf, bind: Option<String>) {

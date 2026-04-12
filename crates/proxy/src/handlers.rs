@@ -114,17 +114,42 @@ pub(crate) fn emit_usage_error<S: Storage, P: Provider>(
     );
 }
 
+/// Lightweight struct for peeking at model/stream without full deserialization.
+#[derive(serde::Deserialize)]
+struct RequestPeek {
+    model: String,
+    #[serde(default)]
+    stream: Option<bool>,
+}
+
+/// Lightweight struct to extract usage from raw response bytes.
+#[derive(serde::Deserialize)]
+pub(crate) struct UsagePeek {
+    pub usage: Option<crabllm_core::Usage>,
+}
+
 /// POST /v1/chat/completions
 pub async fn chat_completions<S, P>(
     State(state): State<AppState<S, P>>,
     Extension(key_name): Extension<KeyName>,
-    Json(mut request): Json<ChatCompletionRequest>,
+    raw_body: axum::body::Bytes,
 ) -> Response
 where
     S: Storage + 'static,
     P: Provider + 'static,
 {
-    let model = state.registry.resolve(&request.model).to_string();
+    let peek: RequestPeek = match serde_json::from_slice(&raw_body) {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ApiError::new(e.to_string(), "invalid_request_error")),
+            )
+                .into_response();
+        }
+    };
+    let is_stream = peek.stream == Some(true);
+    let model = state.registry.resolve(&peek.model).to_string();
     let deployments = match state.registry.dispatch_list(&model) {
         Some(list) => list,
         None => {
@@ -134,6 +159,29 @@ where
                     format!("model '{model}' not found"),
                     "invalid_request_error",
                 )),
+            )
+                .into_response();
+        }
+    };
+
+    // Raw byte proxy: non-streaming, no extensions, all providers OpenAI-compatible.
+    // Extensions can modify the request (on_request), observe the response
+    // (on_response), and serve cached results (on_cache_lookup). The raw path
+    // bypasses all of this, which is only safe when none are registered.
+    if !is_stream
+        && state.extensions.is_empty()
+        && deployments.iter().all(|d| d.provider.is_openai_compat())
+    {
+        return handle_raw_proxy(&state, key_name, &model, &deployments, raw_body).await;
+    }
+
+    // Full deserialization for streaming, extensions, or non-compat providers.
+    let mut request: ChatCompletionRequest = match sonic_rs::from_slice(&raw_body) {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(ApiError::new(e.to_string(), "invalid_request_error")),
             )
                 .into_response();
         }
@@ -150,7 +198,7 @@ where
         model: model.clone(),
         provider: provider_name,
         key_name: key_name.0,
-        is_stream: request.stream == Some(true),
+        is_stream,
         started_at: Instant::now(),
     };
 
@@ -165,7 +213,7 @@ where
         }
     }
 
-    if ctx.is_stream {
+    if is_stream {
         // Ensure OpenAI-compatible providers include token usage in the final
         // streaming chunk. Harmlessly ignored by Anthropic/Google/Bedrock which
         // build their own request format and don't read `extra`.
@@ -344,6 +392,74 @@ where
         emit_usage_error(&state, &ctx, "chat.completions", &e);
         error_response(e)
     }
+}
+
+/// Non-streaming raw byte proxy for OpenAI-compatible providers.
+/// Forwards the request body without deserialization and returns the
+/// response bytes directly. Metrics use lightweight `UsagePeek` extraction.
+async fn handle_raw_proxy<S: Storage, P: Provider>(
+    state: &AppState<S, P>,
+    key_name: KeyName,
+    model: &str,
+    deployments: &[&Deployment<P>],
+    raw_body: axum::body::Bytes,
+) -> Response {
+    let provider_name = state
+        .registry
+        .provider_name(model)
+        .unwrap_or_default()
+        .to_string();
+
+    let ctx = RequestContext {
+        request_id: uuid::Uuid::new_v4().to_string(),
+        model: model.to_string(),
+        provider: provider_name,
+        key_name: key_name.0,
+        is_stream: false,
+        started_at: Instant::now(),
+    };
+
+    let mut last_err = None;
+    for deployment in deployments {
+        match with_timeout(
+            deployment.timeout,
+            deployment.provider.chat_completion_raw(model, raw_body.clone()),
+        )
+        .await
+        {
+            Ok(resp_bytes) => {
+                let (pt, ct) = sonic_rs::from_slice::<UsagePeek>(&resp_bytes)
+                    .ok()
+                    .and_then(|p| p.usage)
+                    .map(|u| (u.prompt_tokens, u.completion_tokens))
+                    .unwrap_or((0, 0));
+                if pt > 0 || ct > 0 {
+                    record_tokens(&ctx, pt, ct);
+                }
+                record_duration(&ctx, "2xx");
+                emit_usage(state, &ctx, "chat.completions", pt, ct, 200, None);
+                return (
+                    [(axum::http::header::CONTENT_TYPE, "application/json")],
+                    resp_bytes,
+                )
+                    .into_response();
+            }
+            Err(e) => {
+                if !e.is_transient() {
+                    record_duration(&ctx, error_status(&e));
+                    emit_usage_error(state, &ctx, "chat.completions", &e);
+                    return error_response(e);
+                }
+                last_err = Some(e);
+            }
+        }
+    }
+
+    let e = last_err
+        .unwrap_or_else(|| crabllm_core::Error::Internal("no providers available".to_string()));
+    record_duration(&ctx, error_status(&e));
+    emit_usage_error(state, &ctx, "chat.completions", &e);
+    error_response(e)
 }
 
 /// POST /v1/embeddings

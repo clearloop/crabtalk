@@ -62,6 +62,35 @@ pub async fn embedding(
     sonic_rs::from_slice(&bytes).map_err(|e| Error::Internal(e.to_string()))
 }
 
+/// Forward raw JSON bytes to an OpenAI-compatible chat completions
+/// endpoint, returning the response bytes without deserialization.
+pub async fn chat_completion_raw(
+    client: &reqwest::Client,
+    base_url: &str,
+    api_key: &str,
+    raw_body: Bytes,
+) -> Result<Bytes, Error> {
+    let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+    let resp = client
+        .post(&url)
+        .bearer_auth(api_key)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(raw_body)
+        .send()
+        .await
+        .map_err(|e| Error::Internal(e.to_string()))?;
+
+    let status = resp.status().as_u16();
+    if status >= 400 {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(Error::Provider { status, body });
+    }
+
+    resp.bytes()
+        .await
+        .map_err(|e| Error::Internal(e.to_string()))
+}
+
 /// Send a streaming chat completion to an OpenAI-compatible endpoint.
 /// Returns an async stream of parsed SSE chunks.
 pub async fn chat_completion_stream(
