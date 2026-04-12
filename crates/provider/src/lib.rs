@@ -7,8 +7,11 @@ use crabllm_core::{
 use futures::stream::StreamExt;
 pub use registry::{Deployment, ProviderRegistry};
 
+mod client;
 mod provider;
 mod registry;
+
+pub use client::{ByteStream, HttpClient};
 
 /// Exposed so `crabllm-llamacpp` can reuse the OpenAI-compatible HTTP
 /// helpers against the child llama-server process. Append-only surface —
@@ -20,59 +23,49 @@ pub mod openai_client {
 
 /// A configured remote-API provider, ready to dispatch requests.
 ///
-/// Each variant carries a `reqwest::Client` so the provider trait
+/// Each variant carries a `HttpClient` so the provider trait
 /// implementation needs no shared client passed by the caller. Cloning a
-/// `RemoteProvider` is cheap — `reqwest::Client` is internally `Arc`-shared.
+/// `RemoteProvider` is cheap — `HttpClient` is internally `Arc`-shared.
 #[derive(Debug, Clone)]
 pub enum RemoteProvider {
     /// OpenAI-compatible providers (OpenAI, Ollama, vLLM, Groq, etc.).
     /// Request body is forwarded as-is with URL + auth rewrite.
     Openai {
-        client: reqwest::Client,
+        client: HttpClient,
         base_url: String,
         api_key: String,
     },
     /// Anthropic Messages API. Requires request/response translation.
     Anthropic {
-        client: reqwest::Client,
+        client: HttpClient,
         api_key: String,
     },
     /// Google Gemini API. Requires request/response translation.
     Google {
-        client: reqwest::Client,
+        client: HttpClient,
         api_key: String,
     },
     /// AWS Bedrock. Requires SigV4 signing + translation.
     Bedrock {
-        client: reqwest::Client,
+        client: HttpClient,
         region: String,
         access_key: String,
         secret_key: String,
     },
     /// Azure OpenAI. Uses deployment-based URL and api-key header.
     Azure {
-        client: reqwest::Client,
+        client: HttpClient,
         base_url: String,
         api_key: String,
         api_version: String,
     },
 }
 
-/// Build the shared `reqwest::Client` used by every `RemoteProvider`
-/// instance. `tcp_nodelay(true)` matches the gateway's inbound listener
-/// and avoids Nagle-buffering small SSE writes on the proxy → upstream
-/// hop. Called once at registry construction and the result is cloned
-/// into every `RemoteProvider`, so all providers share a single
-/// connection pool, DNS resolver, and TLS state.
-///
-/// Exposed so the binary can build the same client for a locally-wired
-/// provider (e.g. the llama.cpp backend) instead of rolling its own
-/// with divergent TCP settings.
-pub fn make_client() -> reqwest::Client {
-    reqwest::Client::builder()
-        .tcp_nodelay(true)
-        .build()
-        .expect("crabllm: failed to build reqwest client")
+/// Build the shared [`HttpClient`] used by every `RemoteProvider`.
+/// Called once at registry construction and cloned into every provider,
+/// so all share a single connection pool, DNS resolver, and TLS state.
+pub fn make_client() -> HttpClient {
+    HttpClient::new()
 }
 
 /// Strip known endpoint suffixes so users can paste either a bare origin
@@ -101,7 +94,7 @@ fn normalize_base_url(url: &str) -> String {
 
 impl RemoteProvider {
     /// Build a `RemoteProvider` from a `ProviderConfig`, reusing a shared
-    /// `reqwest::Client`. Cloning the client is cheap — internally it's
+    /// `HttpClient`. Cloning the client is cheap — internally it's
     /// `Arc<ClientRef>` — so every provider returned by this constructor
     /// dispatches through the same connection pool.
     ///
@@ -110,7 +103,7 @@ impl RemoteProvider {
     /// to the Anthropic dispatch path. Base URLs are normalized so a pasted
     /// full endpoint URL (e.g. `…/v1/chat/completions`) collapses to the bare
     /// origin (`…/v1`).
-    pub fn new(config: &ProviderConfig, client: reqwest::Client) -> Self {
+    pub fn new(config: &ProviderConfig, client: HttpClient) -> Self {
         match config.effective_kind() {
             ProviderKind::Openai => RemoteProvider::Openai {
                 client,
@@ -159,25 +152,37 @@ impl RemoteProvider {
     }
 }
 
-/// Build a `reqwest::multipart::Form` from the provider-trait-friendly
-/// `MultipartField` representation. Used by the audio-transcription trait
-/// impls so each call rebuilds a fresh form (multipart parts are not
-/// re-usable across attempts).
-fn rebuild_form(fields: &[MultipartField]) -> reqwest::multipart::Form {
-    let mut form = reqwest::multipart::Form::new();
+/// Build raw multipart body bytes and boundary from the provider-trait-
+/// friendly `MultipartField` representation. Returns `(body, boundary)`.
+fn rebuild_multipart(fields: &[MultipartField]) -> (Bytes, String) {
+    let boundary = format!("crabllm-{:016x}", rand::random::<u64>());
+    let mut buf = Vec::new();
     for field in fields {
-        let mut part = reqwest::multipart::Part::stream(field.bytes.clone());
+        buf.extend_from_slice(b"--");
+        buf.extend_from_slice(boundary.as_bytes());
+        buf.extend_from_slice(b"\r\n");
+        buf.extend_from_slice(b"Content-Disposition: form-data; name=\"");
+        buf.extend_from_slice(field.name.as_bytes());
+        buf.push(b'"');
         if let Some(ref filename) = field.filename {
-            part = part.file_name(filename.clone());
+            buf.extend_from_slice(b"; filename=\"");
+            buf.extend_from_slice(filename.as_bytes());
+            buf.push(b'"');
         }
-        if let Some(ref content_type) = field.content_type {
-            part = part
-                .mime_str(content_type)
-                .unwrap_or_else(|_| reqwest::multipart::Part::stream(field.bytes.clone()));
+        buf.extend_from_slice(b"\r\n");
+        if let Some(ref ct) = field.content_type {
+            buf.extend_from_slice(b"Content-Type: ");
+            buf.extend_from_slice(ct.as_bytes());
+            buf.extend_from_slice(b"\r\n");
         }
-        form = form.part(field.name.clone(), part);
+        buf.extend_from_slice(b"\r\n");
+        buf.extend_from_slice(&field.bytes);
+        buf.extend_from_slice(b"\r\n");
     }
-    form
+    buf.extend_from_slice(b"--");
+    buf.extend_from_slice(boundary.as_bytes());
+    buf.extend_from_slice(b"--\r\n");
+    (Bytes::from(buf), boundary)
 }
 
 impl Provider for RemoteProvider {
@@ -380,8 +385,9 @@ impl Provider for RemoteProvider {
                 base_url,
                 api_key,
             } => {
-                let form = rebuild_form(fields);
-                provider::openai::audio_transcription(client, base_url, api_key, form).await
+                let (body, boundary) = rebuild_multipart(fields);
+                provider::openai::audio_transcription(client, base_url, api_key, body, &boundary)
+                    .await
             }
             RemoteProvider::Anthropic { .. } => {
                 Err(provider::anthropic::not_implemented("audio_transcription"))
@@ -398,14 +404,15 @@ impl Provider for RemoteProvider {
                 api_key,
                 api_version,
             } => {
-                let form = rebuild_form(fields);
+                let (body, boundary) = rebuild_multipart(fields);
                 provider::azure::audio_transcription(
                     client,
                     base_url,
                     api_key,
                     api_version,
                     model,
-                    form,
+                    body,
+                    &boundary,
                 )
                 .await
             }

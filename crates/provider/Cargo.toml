@@ -10,8 +10,8 @@ keywords = ["llm", "openai", "anthropic", "gemini", "bedrock"]
 categories = ["web-programming::http-client", "network-programming"]
 
 [features]
-native-tls = ["reqwest/native-tls"]
-rustls = ["reqwest/rustls"]
+native-tls = []
+rustls = []
 provider-bedrock = ["hmac", "sha2"]
 
 [dependencies]
@@ -20,8 +20,12 @@ crabllm-core.workspace = true
 # crates-io
 bytes.workspace = true
 futures.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+hyper-rustls.workspace = true
 rand.workspace = true
-reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sonic-rs.workspace = true

@@ -1,4 +1,5 @@
 use crate::provider::schema;
+use crate::{ByteStream, HttpClient};
 use bytes::{Buf, BytesMut};
 use crabllm_core::{
     ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice, Delta,
@@ -422,38 +423,36 @@ pub fn not_implemented(name: &str) -> Error {
 // ── Public API ──
 
 pub async fn chat_completion(
-    client: &reqwest::Client,
+    client: &HttpClient,
     api_key: &str,
     request: &ChatCompletionRequest,
 ) -> Result<ChatCompletionResponse, Error> {
     let gemini_req = translate_request(request);
     let url = format!("{}/models/{}:generateContent", BASE_URL, request.model);
 
+    let body = sonic_rs::to_vec(&gemini_req).map_err(|e| Error::Internal(e.to_string()))?;
+    let headers = [
+        ("x-goog-api-key", api_key),
+        ("content-type", "application/json"),
+    ];
     let resp = client
-        .post(&url)
-        .header("x-goog-api-key", api_key)
-        .header("content-type", "application/json")
-        .json(&gemini_req)
-        .send()
+        .post(&url, &headers, body.into())
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
-    let status = resp.status().as_u16();
-    if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(Error::Provider { status, body });
+    if resp.status >= 400 {
+        let body = String::from_utf8_lossy(&resp.body).into_owned();
+        return Err(Error::Provider { status: resp.status, body });
     }
 
-    let gemini_resp: GeminiResponse = resp
-        .json()
-        .await
-        .map_err(|e| Error::Internal(e.to_string()))?;
+    let gemini_resp: GeminiResponse =
+        sonic_rs::from_slice(&resp.body).map_err(|e| Error::Internal(e.to_string()))?;
 
     Ok(translate_response(gemini_resp, &request.model))
 }
 
 pub async fn chat_completion_stream(
-    client: &reqwest::Client,
+    client: &HttpClient,
     api_key: &str,
     request: &ChatCompletionRequest,
     model: &str,
@@ -464,35 +463,27 @@ pub async fn chat_completion_stream(
         BASE_URL, request.model
     );
 
-    let resp = client
-        .post(&url)
-        .header("x-goog-api-key", api_key)
-        .header("content-type", "application/json")
-        .json(&gemini_req)
-        .send()
-        .await
-        .map_err(|e| Error::Internal(e.to_string()))?;
-
-    let status = resp.status().as_u16();
-    if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(Error::Provider { status, body });
-    }
+    let body = sonic_rs::to_vec(&gemini_req).map_err(|e| Error::Internal(e.to_string()))?;
+    let headers = [
+        ("x-goog-api-key", api_key),
+        ("content-type", "application/json"),
+    ];
+    let byte_stream = client
+        .post_stream(&url, &headers, body.into())
+        .await?;
 
     let model = model.to_string();
-    Ok(gemini_sse_stream(resp, model))
+    Ok(gemini_sse_stream(byte_stream, model))
 }
 
 fn gemini_sse_stream(
-    resp: reqwest::Response,
+    byte_stream: ByteStream,
     model: String,
 ) -> impl Stream<Item = Result<ChatCompletionChunk, Error>> {
-    let byte_stream = resp.bytes_stream();
-
     stream::unfold(
         (byte_stream, BytesMut::new(), model, 0u64),
         |(mut byte_stream, mut buffer, model, mut chunk_idx)| async move {
-            use futures::TryStreamExt;
+            use futures::StreamExt;
 
             loop {
                 if let Some(newline_pos) = buffer.iter().position(|&b| b == b'\n') {
@@ -595,17 +586,17 @@ fn gemini_sse_stream(
                     return Some((Ok(chunk), (byte_stream, buffer, model, chunk_idx)));
                 }
 
-                match byte_stream.try_next().await {
-                    Ok(Some(bytes)) => {
+                match byte_stream.next().await {
+                    Some(Ok(bytes)) => {
                         buffer.extend_from_slice(&bytes);
                     }
-                    Ok(None) => return None,
-                    Err(e) => {
+                    Some(Err(e)) => {
                         return Some((
                             Err(Error::Internal(format!("stream error: {e}"))),
                             (byte_stream, buffer, model, chunk_idx),
                         ));
                     }
+                    None => return None,
                 }
             }
         },

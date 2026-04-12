@@ -3,126 +3,112 @@ use crabllm_core::{
     AudioSpeechRequest, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse,
     EmbeddingRequest, EmbeddingResponse, Error, ImageRequest,
 };
+use crate::{ByteStream, HttpClient};
 use futures::stream::{self, Stream};
-use reqwest::Response;
 
 /// Send a non-streaming chat completion to an OpenAI-compatible endpoint.
 pub async fn chat_completion(
-    client: &reqwest::Client,
+    client: &HttpClient,
     base_url: &str,
     api_key: &str,
     request: &ChatCompletionRequest,
 ) -> Result<ChatCompletionResponse, Error> {
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
     let body = sonic_rs::to_vec(request).map_err(|e| Error::Internal(e.to_string()))?;
+    let headers = [
+        ("content-type", "application/json"),
+        ("authorization", &format!("Bearer {api_key}")),
+    ];
     let resp = client
-        .post(&url)
-        .bearer_auth(api_key)
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(body)
-        .send()
+        .post(&url, &headers, body.into())
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
-    let status = resp.status().as_u16();
-    if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(Error::Provider { status, body });
+    if resp.status >= 400 {
+        let body = String::from_utf8_lossy(&resp.body).into_owned();
+        return Err(Error::Provider { status: resp.status, body });
     }
 
-    let bytes = resp.bytes().await.map_err(|e| Error::Internal(e.to_string()))?;
-    sonic_rs::from_slice(&bytes).map_err(|e| Error::Internal(e.to_string()))
+    sonic_rs::from_slice(&resp.body).map_err(|e| Error::Internal(e.to_string()))
 }
 
 /// Send an embedding request to an OpenAI-compatible endpoint.
 pub async fn embedding(
-    client: &reqwest::Client,
+    client: &HttpClient,
     base_url: &str,
     api_key: &str,
     request: &EmbeddingRequest,
 ) -> Result<EmbeddingResponse, Error> {
     let url = format!("{}/embeddings", base_url.trim_end_matches('/'));
     let body = sonic_rs::to_vec(request).map_err(|e| Error::Internal(e.to_string()))?;
+    let headers = [
+        ("content-type", "application/json"),
+        ("authorization", &format!("Bearer {api_key}")),
+    ];
     let resp = client
-        .post(&url)
-        .bearer_auth(api_key)
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(body)
-        .send()
+        .post(&url, &headers, body.into())
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
-    let status = resp.status().as_u16();
-    if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(Error::Provider { status, body });
+    if resp.status >= 400 {
+        let body = String::from_utf8_lossy(&resp.body).into_owned();
+        return Err(Error::Provider { status: resp.status, body });
     }
 
-    let bytes = resp.bytes().await.map_err(|e| Error::Internal(e.to_string()))?;
-    sonic_rs::from_slice(&bytes).map_err(|e| Error::Internal(e.to_string()))
+    sonic_rs::from_slice(&resp.body).map_err(|e| Error::Internal(e.to_string()))
 }
 
 /// Forward raw JSON bytes to an OpenAI-compatible chat completions
 /// endpoint, returning the response bytes without deserialization.
 pub async fn chat_completion_raw(
-    client: &reqwest::Client,
+    client: &HttpClient,
     base_url: &str,
     api_key: &str,
     raw_body: Bytes,
 ) -> Result<Bytes, Error> {
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+    let headers = [
+        ("content-type", "application/json"),
+        ("authorization", &format!("Bearer {api_key}")),
+    ];
     let resp = client
-        .post(&url)
-        .bearer_auth(api_key)
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(raw_body)
-        .send()
+        .post(&url, &headers, raw_body)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
-    let status = resp.status().as_u16();
-    if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(Error::Provider { status, body });
+    if resp.status >= 400 {
+        let body = String::from_utf8_lossy(&resp.body).into_owned();
+        return Err(Error::Provider { status: resp.status, body });
     }
 
-    resp.bytes()
-        .await
-        .map_err(|e| Error::Internal(e.to_string()))
+    Ok(resp.body)
 }
 
 /// Send a streaming chat completion to an OpenAI-compatible endpoint.
 /// Returns an async stream of parsed SSE chunks.
 pub async fn chat_completion_stream(
-    client: &reqwest::Client,
+    client: &HttpClient,
     base_url: &str,
     api_key: &str,
     request: &ChatCompletionRequest,
 ) -> Result<impl Stream<Item = Result<ChatCompletionChunk, Error>> + use<>, Error> {
     let url = format!("{}/chat/completions", base_url.trim_end_matches('/'));
     let body = sonic_rs::to_vec(request).map_err(|e| Error::Internal(e.to_string()))?;
-    let resp = client
-        .post(&url)
-        .bearer_auth(api_key)
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(body)
-        .send()
-        .await
-        .map_err(|e| Error::Internal(e.to_string()))?;
+    let headers = [
+        ("content-type", "application/json"),
+        ("authorization", &format!("Bearer {api_key}")),
+    ];
+    let byte_stream = client
+        .post_stream(&url, &headers, body.into())
+        .await?;
 
-    let status = resp.status().as_u16();
-    if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(Error::Provider { status, body });
-    }
-
-    Ok(sse_stream(resp))
+    Ok(sse_stream(byte_stream))
 }
 
 /// Send an image generation request to an OpenAI-compatible endpoint.
 /// Returns raw response bytes and content-type header.
 pub async fn image_generation(
-    client: &reqwest::Client,
+    client: &HttpClient,
     base_url: &str,
     api_key: &str,
     request: &ImageRequest,
@@ -134,7 +120,7 @@ pub async fn image_generation(
 /// Send a text-to-speech request to an OpenAI-compatible endpoint.
 /// Returns raw audio bytes and content-type header.
 pub async fn audio_speech(
-    client: &reqwest::Client,
+    client: &HttpClient,
     base_url: &str,
     api_key: &str,
     request: &AudioSpeechRequest,
@@ -152,82 +138,69 @@ pub async fn audio_speech(
 
 /// Forward a JSON request and return raw response bytes + content-type.
 pub(crate) async fn raw_pass_through<T: serde::Serialize>(
-    client: &reqwest::Client,
+    client: &HttpClient,
     url: &str,
     api_key: &str,
     request: &T,
 ) -> Result<(Bytes, String), Error> {
+    let body = sonic_rs::to_vec(request).map_err(|e| Error::Internal(e.to_string()))?;
+    let headers = [
+        ("content-type", "application/json"),
+        ("authorization", &format!("Bearer {api_key}")),
+    ];
     let resp = client
-        .post(url)
-        .bearer_auth(api_key)
-        .json(request)
-        .send()
+        .post(url, &headers, body.into())
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
-    let status = resp.status().as_u16();
-    if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(Error::Provider { status, body });
+    if resp.status >= 400 {
+        let body = String::from_utf8_lossy(&resp.body).into_owned();
+        return Err(Error::Provider { status: resp.status, body });
     }
 
     let content_type = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("application/json")
-        .to_string();
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| Error::Internal(e.to_string()))?;
-    Ok((bytes, content_type))
+        .content_type
+        .unwrap_or_else(|| "application/json".to_string());
+    Ok((resp.body, content_type))
 }
 
 /// Send an audio transcription request to an OpenAI-compatible endpoint.
-/// Takes a pre-built multipart form. Returns raw response bytes + content-type.
+/// Takes pre-built multipart body bytes and boundary. Returns raw response bytes + content-type.
 pub async fn audio_transcription(
-    client: &reqwest::Client,
+    client: &HttpClient,
     base_url: &str,
     api_key: &str,
-    form: reqwest::multipart::Form,
+    body: Bytes,
+    boundary: &str,
 ) -> Result<(Bytes, String), Error> {
     let url = format!("{}/audio/transcriptions", base_url.trim_end_matches('/'));
+    let content_type_header = format!("multipart/form-data; boundary={boundary}");
+    let headers = [
+        ("content-type", content_type_header.as_str()),
+        ("authorization", &format!("Bearer {api_key}")),
+    ];
     let resp = client
-        .post(&url)
-        .bearer_auth(api_key)
-        .multipart(form)
-        .send()
+        .post(&url, &headers, body)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
-    let status = resp.status().as_u16();
-    if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(Error::Provider { status, body });
+    if resp.status >= 400 {
+        let body = String::from_utf8_lossy(&resp.body).into_owned();
+        return Err(Error::Provider { status: resp.status, body });
     }
 
     let content_type = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("application/json")
-        .to_string();
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| Error::Internal(e.to_string()))?;
-    Ok((bytes, content_type))
+        .content_type
+        .unwrap_or_else(|| "application/json".to_string());
+    Ok((resp.body, content_type))
 }
 
 /// Parse an SSE byte stream into `ChatCompletionChunk` items.
-pub(crate) fn sse_stream(resp: Response) -> impl Stream<Item = Result<ChatCompletionChunk, Error>> {
-    let byte_stream = resp.bytes_stream();
-
+pub(crate) fn sse_stream(byte_stream: ByteStream) -> impl Stream<Item = Result<ChatCompletionChunk, Error>> {
     stream::unfold(
         (byte_stream, BytesMut::new()),
         |(mut byte_stream, mut buffer)| async move {
-            use futures::TryStreamExt;
+            use futures::StreamExt;
 
             loop {
                 if let Some(newline_pos) = buffer.iter().position(|&b| b == b'\n') {
@@ -266,17 +239,17 @@ pub(crate) fn sse_stream(resp: Response) -> impl Stream<Item = Result<ChatComple
                 }
 
                 // Need more data from the stream.
-                match byte_stream.try_next().await {
-                    Ok(Some(bytes)) => {
+                match byte_stream.next().await {
+                    Some(Ok(bytes)) => {
                         buffer.extend_from_slice(&bytes);
                     }
-                    Ok(None) => return None,
-                    Err(e) => {
+                    Some(Err(e)) => {
                         return Some((
                             Err(Error::Internal(format!("stream error: {e}"))),
                             (byte_stream, buffer),
                         ));
                     }
+                    None => return None,
                 }
             }
         },

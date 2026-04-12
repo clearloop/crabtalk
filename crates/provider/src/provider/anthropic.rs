@@ -1,4 +1,5 @@
 use crate::provider::schema;
+use crate::{ByteStream, HttpClient};
 use bytes::{Buf, Bytes, BytesMut};
 use crabllm_core::{
     AnthropicContent, AnthropicContentBlock, AnthropicMessage, AnthropicRequest, AnthropicResponse,
@@ -373,18 +374,20 @@ pub fn not_implemented(name: &str) -> Error {
     Error::Internal(format!("anthropic {name} not supported"))
 }
 
-// ── Auth ──
+// ── Auth helpers ──
 
 fn is_oauth_token(api_key: &str) -> bool {
     api_key.starts_with(OAUTH_TOKEN_PREFIX)
 }
 
-fn apply_auth(req: reqwest::RequestBuilder, api_key: &str) -> reqwest::RequestBuilder {
+fn auth_headers(api_key: &str) -> Vec<(&'static str, String)> {
     if is_oauth_token(api_key) {
-        req.bearer_auth(api_key)
-            .header("anthropic-beta", OAUTH_BETA)
+        vec![
+            ("authorization", format!("Bearer {api_key}")),
+            ("anthropic-beta", OAUTH_BETA.to_string()),
+        ]
     } else {
-        req.header("x-api-key", api_key)
+        vec![("x-api-key", api_key.to_string())]
     }
 }
 
@@ -393,39 +396,34 @@ fn apply_auth(req: reqwest::RequestBuilder, api_key: &str) -> reqwest::RequestBu
 /// Forward raw Anthropic-format JSON bytes to the Messages API,
 /// returning the response bytes without deserialization.
 pub async fn anthropic_messages_raw(
-    client: &reqwest::Client,
+    client: &HttpClient,
     api_key: &str,
     raw_body: Bytes,
 ) -> Result<Bytes, Error> {
     let url = format!("{BASE_URL}/messages");
-    let mut req = client
-        .post(&url)
-        .header("anthropic-version", "2023-06-01")
-        .header("content-type", "application/json");
-    if is_oauth_token(api_key) {
-        req = req.bearer_auth(api_key).header("anthropic-beta", OAUTH_BETA);
-    } else {
-        req = req.header("x-api-key", api_key);
+    let auth = auth_headers(api_key);
+    let mut headers: Vec<(&str, &str)> = vec![
+        ("anthropic-version", "2023-06-01"),
+        ("content-type", "application/json"),
+    ];
+    for (k, v) in &auth {
+        headers.push((k, v.as_str()));
     }
-    let resp = req
-        .body(raw_body)
-        .send()
+    let resp = client
+        .post(&url, &headers, raw_body)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
-    let status = resp.status().as_u16();
-    if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(Error::Provider { status, body });
+    if resp.status >= 400 {
+        let body = String::from_utf8_lossy(&resp.body).into_owned();
+        return Err(Error::Provider { status: resp.status, body });
     }
 
-    resp.bytes()
-        .await
-        .map_err(|e| Error::Internal(e.to_string()))
+    Ok(resp.body)
 }
 
 pub async fn chat_completion(
-    client: &reqwest::Client,
+    client: &HttpClient,
     api_key: &str,
     request: &ChatCompletionRequest,
 ) -> Result<ChatCompletionResponse, Error> {
@@ -438,38 +436,36 @@ pub async fn chat_completion(
     let anthropic_req = translate_request(request);
     let url = format!("{BASE_URL}/messages");
 
-    let mut req = apply_auth(
-        client
-            .post(&url)
-            .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json"),
-        api_key,
-    );
+    let body = sonic_rs::to_vec(&anthropic_req).map_err(|e| Error::Internal(e.to_string()))?;
+    let auth = auth_headers(api_key);
+    let mut headers: Vec<(&str, &str)> = vec![
+        ("anthropic-version", "2023-06-01"),
+        ("content-type", "application/json"),
+    ];
+    for (k, v) in &auth {
+        headers.push((k, v.as_str()));
+    }
     if anthropic_req.thinking.is_some() {
-        req = req.header("anthropic-beta", "interleaved-thinking-2025-05-14");
+        headers.push(("anthropic-beta", "interleaved-thinking-2025-05-14"));
     }
-    let resp = req
-        .json(&anthropic_req)
-        .send()
+    let resp = client
+        .post(&url, &headers, body.into())
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
-    let status = resp.status().as_u16();
-    if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(Error::Provider { status, body });
+    if resp.status >= 400 {
+        let body = String::from_utf8_lossy(&resp.body).into_owned();
+        return Err(Error::Provider { status: resp.status, body });
     }
 
-    let anthropic_resp: AnthropicResponse = resp
-        .json()
-        .await
-        .map_err(|e| Error::Internal(e.to_string()))?;
+    let anthropic_resp: AnthropicResponse =
+        sonic_rs::from_slice(&resp.body).map_err(|e| Error::Internal(e.to_string()))?;
 
     Ok(translate_response(anthropic_resp))
 }
 
 pub async fn chat_completion_stream(
-    client: &reqwest::Client,
+    client: &HttpClient,
     api_key: &str,
     request: &ChatCompletionRequest,
     model: &str,
@@ -478,30 +474,24 @@ pub async fn chat_completion_stream(
     anthropic_req.stream = Some(true);
     let url = format!("{BASE_URL}/messages");
 
-    let mut req = apply_auth(
-        client
-            .post(&url)
-            .header("anthropic-version", "2023-06-01")
-            .header("content-type", "application/json"),
-        api_key,
-    );
+    let body = sonic_rs::to_vec(&anthropic_req).map_err(|e| Error::Internal(e.to_string()))?;
+    let auth = auth_headers(api_key);
+    let mut headers: Vec<(&str, &str)> = vec![
+        ("anthropic-version", "2023-06-01"),
+        ("content-type", "application/json"),
+    ];
+    for (k, v) in &auth {
+        headers.push((k, v.as_str()));
+    }
     if anthropic_req.thinking.is_some() {
-        req = req.header("anthropic-beta", "interleaved-thinking-2025-05-14");
+        headers.push(("anthropic-beta", "interleaved-thinking-2025-05-14"));
     }
-    let resp = req
-        .json(&anthropic_req)
-        .send()
-        .await
-        .map_err(|e| Error::Internal(e.to_string()))?;
-
-    let status = resp.status().as_u16();
-    if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(Error::Provider { status, body });
-    }
+    let byte_stream = client
+        .post_stream(&url, &headers, body.into())
+        .await?;
 
     let model = model.to_string();
-    Ok(anthropic_sse_stream(resp, model))
+    Ok(anthropic_sse_stream(byte_stream, model))
 }
 
 /// Streaming state: tracks chunk counter, tool call counter, cached input tokens,
@@ -516,10 +506,9 @@ struct StreamState {
 }
 
 fn anthropic_sse_stream(
-    resp: reqwest::Response,
+    byte_stream: ByteStream,
     model: String,
 ) -> impl Stream<Item = Result<ChatCompletionChunk, Error>> {
-    let byte_stream = resp.bytes_stream();
     let state = StreamState {
         chunk_idx: 0,
         tool_call_idx: 0,
@@ -532,6 +521,8 @@ fn anthropic_sse_stream(
     stream::unfold(
         (byte_stream, BytesMut::new(), model, state),
         |(mut byte_stream, mut buffer, model, mut state)| async move {
+            use futures::StreamExt;
+
             loop {
                 if let Some(newline_pos) = buffer.iter().position(|&b| b == b'\n') {
                     let mut line_end = newline_pos;
@@ -779,17 +770,17 @@ fn anthropic_sse_stream(
                     continue;
                 }
 
-                match byte_stream.try_next().await {
-                    Ok(Some(bytes)) => {
+                match byte_stream.next().await {
+                    Some(Ok(bytes)) => {
                         buffer.extend_from_slice(&bytes);
                     }
-                    Ok(None) => return None,
-                    Err(e) => {
+                    Some(Err(e)) => {
                         return Some((
                             Err(Error::Internal(format!("stream error: {e}"))),
                             (byte_stream, buffer, model, state),
                         ));
                     }
+                    None => return None,
                 }
             }
         },

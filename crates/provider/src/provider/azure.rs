@@ -1,4 +1,5 @@
 use crate::provider::openai;
+use crate::HttpClient;
 use bytes::Bytes;
 use crabllm_core::{
     AudioSpeechRequest, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse,
@@ -20,7 +21,7 @@ fn azure_url(base_url: &str, model: &str, path: &str, api_version: &str) -> Stri
 
 /// Send a non-streaming chat completion to an Azure OpenAI deployment.
 pub async fn chat_completion(
-    client: &reqwest::Client,
+    client: &HttpClient,
     base_url: &str,
     api_key: &str,
     api_version: &str,
@@ -28,29 +29,27 @@ pub async fn chat_completion(
 ) -> Result<ChatCompletionResponse, Error> {
     let url = azure_url(base_url, &request.model, "chat/completions", api_version);
     let body = sonic_rs::to_vec(request).map_err(|e| Error::Internal(e.to_string()))?;
+    let headers = [
+        ("content-type", "application/json"),
+        ("api-key", api_key),
+    ];
     let resp = client
-        .post(&url)
-        .header("api-key", api_key)
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(body)
-        .send()
+        .post(&url, &headers, body.into())
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
-    let status = resp.status().as_u16();
-    if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(Error::Provider { status, body });
+    if resp.status >= 400 {
+        let body = String::from_utf8_lossy(&resp.body).into_owned();
+        return Err(Error::Provider { status: resp.status, body });
     }
 
-    let bytes = resp.bytes().await.map_err(|e| Error::Internal(e.to_string()))?;
-    sonic_rs::from_slice(&bytes).map_err(|e| Error::Internal(e.to_string()))
+    sonic_rs::from_slice(&resp.body).map_err(|e| Error::Internal(e.to_string()))
 }
 
 /// Forward raw JSON bytes to an Azure OpenAI chat completions deployment,
 /// returning the response bytes without deserialization.
 pub async fn chat_completion_raw(
-    client: &reqwest::Client,
+    client: &HttpClient,
     base_url: &str,
     api_key: &str,
     api_version: &str,
@@ -58,29 +57,26 @@ pub async fn chat_completion_raw(
     raw_body: Bytes,
 ) -> Result<Bytes, Error> {
     let url = azure_url(base_url, model, "chat/completions", api_version);
+    let headers = [
+        ("content-type", "application/json"),
+        ("api-key", api_key),
+    ];
     let resp = client
-        .post(&url)
-        .header("api-key", api_key)
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(raw_body)
-        .send()
+        .post(&url, &headers, raw_body)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
-    let status = resp.status().as_u16();
-    if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(Error::Provider { status, body });
+    if resp.status >= 400 {
+        let body = String::from_utf8_lossy(&resp.body).into_owned();
+        return Err(Error::Provider { status: resp.status, body });
     }
 
-    resp.bytes()
-        .await
-        .map_err(|e| Error::Internal(e.to_string()))
+    Ok(resp.body)
 }
 
 /// Send an embedding request to an Azure OpenAI deployment.
 pub async fn embedding(
-    client: &reqwest::Client,
+    client: &HttpClient,
     base_url: &str,
     api_key: &str,
     api_version: &str,
@@ -88,28 +84,26 @@ pub async fn embedding(
 ) -> Result<EmbeddingResponse, Error> {
     let url = azure_url(base_url, &request.model, "embeddings", api_version);
     let body = sonic_rs::to_vec(request).map_err(|e| Error::Internal(e.to_string()))?;
+    let headers = [
+        ("content-type", "application/json"),
+        ("api-key", api_key),
+    ];
     let resp = client
-        .post(&url)
-        .header("api-key", api_key)
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(body)
-        .send()
+        .post(&url, &headers, body.into())
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
-    let status = resp.status().as_u16();
-    if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(Error::Provider { status, body });
+    if resp.status >= 400 {
+        let body = String::from_utf8_lossy(&resp.body).into_owned();
+        return Err(Error::Provider { status: resp.status, body });
     }
 
-    let bytes = resp.bytes().await.map_err(|e| Error::Internal(e.to_string()))?;
-    sonic_rs::from_slice(&bytes).map_err(|e| Error::Internal(e.to_string()))
+    sonic_rs::from_slice(&resp.body).map_err(|e| Error::Internal(e.to_string()))
 }
 
 /// Send an image generation request to an Azure OpenAI deployment.
 pub async fn image_generation(
-    client: &reqwest::Client,
+    client: &HttpClient,
     base_url: &str,
     api_key: &str,
     api_version: &str,
@@ -121,7 +115,7 @@ pub async fn image_generation(
 
 /// Send a text-to-speech request to an Azure OpenAI deployment.
 pub async fn audio_speech(
-    client: &reqwest::Client,
+    client: &HttpClient,
     base_url: &str,
     api_key: &str,
     api_version: &str,
@@ -139,80 +133,69 @@ pub async fn audio_speech(
 
 /// Forward a JSON request to Azure and return raw response bytes + content-type.
 pub(crate) async fn raw_pass_through<T: serde::Serialize>(
-    client: &reqwest::Client,
+    client: &HttpClient,
     url: &str,
     api_key: &str,
     request: &T,
 ) -> Result<(Bytes, String), Error> {
+    let body = sonic_rs::to_vec(request).map_err(|e| Error::Internal(e.to_string()))?;
+    let headers = [
+        ("content-type", "application/json"),
+        ("api-key", api_key),
+    ];
     let resp = client
-        .post(url)
-        .header("api-key", api_key)
-        .json(request)
-        .send()
+        .post(url, &headers, body.into())
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
-    let status = resp.status().as_u16();
-    if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(Error::Provider { status, body });
+    if resp.status >= 400 {
+        let body = String::from_utf8_lossy(&resp.body).into_owned();
+        return Err(Error::Provider { status: resp.status, body });
     }
 
     let content_type = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("application/json")
-        .to_string();
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| Error::Internal(e.to_string()))?;
-    Ok((bytes, content_type))
+        .content_type
+        .unwrap_or_else(|| "application/json".to_string());
+    Ok((resp.body, content_type))
 }
 
 /// Send an audio transcription request to an Azure OpenAI deployment.
 /// Takes model separately since the multipart form is opaque.
 pub async fn audio_transcription(
-    client: &reqwest::Client,
+    client: &HttpClient,
     base_url: &str,
     api_key: &str,
     api_version: &str,
     model: &str,
-    form: reqwest::multipart::Form,
+    body: Bytes,
+    boundary: &str,
 ) -> Result<(Bytes, String), Error> {
     let url = azure_url(base_url, model, "audio/transcriptions", api_version);
+    let content_type_header = format!("multipart/form-data; boundary={boundary}");
+    let headers = [
+        ("content-type", content_type_header.as_str()),
+        ("api-key", api_key),
+    ];
     let resp = client
-        .post(&url)
-        .header("api-key", api_key)
-        .multipart(form)
-        .send()
+        .post(&url, &headers, body)
         .await
         .map_err(|e| Error::Internal(e.to_string()))?;
 
-    let status = resp.status().as_u16();
-    if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(Error::Provider { status, body });
+    if resp.status >= 400 {
+        let body = String::from_utf8_lossy(&resp.body).into_owned();
+        return Err(Error::Provider { status: resp.status, body });
     }
 
     let content_type = resp
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("application/json")
-        .to_string();
-    let bytes = resp
-        .bytes()
-        .await
-        .map_err(|e| Error::Internal(e.to_string()))?;
-    Ok((bytes, content_type))
+        .content_type
+        .unwrap_or_else(|| "application/json".to_string());
+    Ok((resp.body, content_type))
 }
 
 /// Send a streaming chat completion to an Azure OpenAI deployment.
 /// Reuses the OpenAI SSE parser since Azure streams in the same format.
 pub async fn chat_completion_stream(
-    client: &reqwest::Client,
+    client: &HttpClient,
     base_url: &str,
     api_key: &str,
     api_version: &str,
@@ -220,20 +203,13 @@ pub async fn chat_completion_stream(
 ) -> Result<impl Stream<Item = Result<ChatCompletionChunk, Error>> + use<>, Error> {
     let url = azure_url(base_url, &request.model, "chat/completions", api_version);
     let body = sonic_rs::to_vec(request).map_err(|e| Error::Internal(e.to_string()))?;
-    let resp = client
-        .post(&url)
-        .header("api-key", api_key)
-        .header(reqwest::header::CONTENT_TYPE, "application/json")
-        .body(body)
-        .send()
-        .await
-        .map_err(|e| Error::Internal(e.to_string()))?;
+    let headers = [
+        ("content-type", "application/json"),
+        ("api-key", api_key),
+    ];
+    let byte_stream = client
+        .post_stream(&url, &headers, body.into())
+        .await?;
 
-    let status = resp.status().as_u16();
-    if status >= 400 {
-        let body = resp.text().await.unwrap_or_default();
-        return Err(Error::Provider { status, body });
-    }
-
-    Ok(openai::sse_stream(resp))
+    Ok(openai::sse_stream(byte_stream))
 }
