@@ -22,6 +22,7 @@ crabllm-mlx = { version = "0.0.15", path = "crates/mlx" }
 
 # crates-io
 axum = { version = "0.8", features = ["multipart"] }
+base64 = "0.22"
 bytes = "1"
 clap = { version = "4", features = ["derive"] }
 futures = "0.3"
