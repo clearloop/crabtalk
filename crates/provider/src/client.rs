@@ -25,6 +25,12 @@ pub struct RawResponse {
     pub content_type: Option<String>,
 }
 
+impl Default for HttpClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HttpClient {
     /// Build a new client with TCP_NODELAY, TLS (rustls), and HTTP/2.
     pub fn new() -> Self {
@@ -127,7 +133,7 @@ impl HttpClient {
             |frame| {
                 let result = match frame {
                     Ok(f) => f.into_data().ok().map(Ok),
-                    Err(e) => Some(Err(std::io::Error::new(std::io::ErrorKind::Other, e))),
+                    Err(e) => Some(Err(std::io::Error::other(e))),
                 };
                 std::future::ready(result)
             },
