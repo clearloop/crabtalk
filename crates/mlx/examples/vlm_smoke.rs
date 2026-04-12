@@ -75,11 +75,7 @@ fn ensure_downloaded() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-async fn run_once(
-    provider: &MlxProvider,
-    label: &str,
-    url: String,
-) -> Result<(), Box<dyn Error>> {
+async fn run_once(provider: &MlxProvider, label: &str, url: String) -> Result<(), Box<dyn Error>> {
     let content: Value = json!([
         {"type": "text", "text": PROMPT},
         {"type": "image_url", "image_url": {"url": url}},
