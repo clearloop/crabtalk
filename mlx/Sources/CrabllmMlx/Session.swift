@@ -23,13 +23,19 @@ import Foundation
 import MLXHuggingFace
 import MLXLLM
 import MLXLMCommon
+import MLXVLM
 import Tokenizers
 
-// Force the ObjC runtime to load MLXLLM's TrampolineModelFactory.
-// Without this, NSClassFromString("MLXLLM.TrampolineModelFactory")
-// returns nil in a static library because the linker dead-strips the
-// unreferenced ObjC class. This no-op reference keeps it alive.
-private let _forceLoadLLMFactory: AnyClass? = TrampolineModelFactory.self
+// Force the ObjC runtime to load the TrampolineModelFactory classes
+// from MLXLLM and MLXVLM. Without these, NSClassFromString lookups
+// for "MLXLLM.TrampolineModelFactory" / "MLXVLM.TrampolineModelFactory"
+// return nil in a static library because the linker dead-strips the
+// unreferenced ObjC classes. `loadModelContainer` auto-dispatches
+// through `ModelFactoryRegistry`, which walks both trampolines in
+// order (VLM first, then LLM) — if either is missing the corresponding
+// model family silently fails to load.
+private let _forceLoadLLMFactory: AnyClass? = MLXLLM.TrampolineModelFactory.self
+private let _forceLoadVLMFactory: AnyClass? = MLXVLM.TrampolineModelFactory.self
 
 // MARK: - Status constants (pinned by smoke.c _Static_asserts)
 
@@ -233,134 +239,6 @@ func blockingAwait<T>(_ op: @Sendable @escaping () async throws -> T) throws -> 
     }
 }
 
-// MARK: - Message parsing
-
-/// Decode the Rust-supplied messages JSON into the shape `ChatSession`
-/// expects: a system prompt (if first message is `system`), a history
-/// of prior turns, and the final user prompt to respond to.
-///
-/// Content handling:
-///   * Plain string content (`"content": "..."`) is used as-is.
-///   * Array-of-parts content (`"content": [{"type":"text","text":"..."}, ...]`)
-///     is flattened by concatenating every `text` part. Image / audio
-///     parts are dropped — Phase 5 is text-only. A future VLM phase
-///     will replace this with a richer parser.
-///   * Missing / null / non-string / non-array content becomes "".
-///
-/// Known limitations (text-only scope):
-///   * `tool_call_id` is dropped. mlx-swift-lm's `Chat.Message.tool(_:)`
-///     takes only content; the tokenizer chat template is expected to
-///     do the right thing based on ordering alone.
-///   * Only the first `system` message populates `instructions`; any
-///     subsequent `system` messages are added to `history` as
-///     `.system(...)` and whether they take effect depends on the
-///     model's chat template.
-struct DecodedMessages {
-    let instructions: String?
-    let history: [Chat.Message]
-    let lastPrompt: String
-    let lastRole: Chat.Message.Role
-}
-
-func decodeMessages(_ json: String) throws -> DecodedMessages {
-    guard let data = json.data(using: .utf8) else {
-        throw FFIError.invalidArg("messages_json not valid UTF-8")
-    }
-    guard let arr = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-        throw FFIError.invalidArg("messages_json must be a JSON array of objects")
-    }
-    if arr.isEmpty {
-        throw FFIError.invalidArg("messages_json is empty")
-    }
-
-    var messages = arr
-    var instructions: String? = nil
-    if messages.first?["role"] as? String == "system" {
-        instructions = flattenContent(messages.removeFirst()["content"])
-    }
-
-    guard let last = messages.last else {
-        throw FFIError.invalidArg("messages_json has no non-system messages")
-    }
-    let lastRole: Chat.Message.Role = switch last["role"] as? String {
-    case "user": .user
-    case "assistant": .assistant
-    case "tool": .tool
-    case "system": .system
-    default: .user
-    }
-    let lastContent = flattenContent(last["content"]) ?? ""
-
-    var history: [Chat.Message] = []
-    for msg in messages.dropLast() {
-        let content = flattenContent(msg["content"]) ?? ""
-        switch msg["role"] as? String {
-        case "user":
-            history.append(.user(content))
-        case "assistant":
-            history.append(.assistant(content))
-        case "system":
-            history.append(.system(content))
-        case "tool":
-            history.append(.tool(content))
-        default:
-            history.append(.user(content))
-        }
-    }
-
-    return DecodedMessages(
-        instructions: instructions,
-        history: history,
-        lastPrompt: lastContent,
-        lastRole: lastRole
-    )
-}
-
-/// Collapse an OpenAI-shape `content` payload into a plain string.
-/// Returns nil for NULL / empty / unrecognized input.
-func flattenContent(_ value: Any?) -> String? {
-    guard let value = value else { return nil }
-    if let s = value as? String {
-        return s.isEmpty ? nil : s
-    }
-    if let parts = value as? [[String: Any]] {
-        var buf = ""
-        for part in parts {
-            // OpenAI vision parts are `{"type":"text","text":"..."}`.
-            // Only text parts are supported in Phase 5.
-            if let type = part["type"] as? String, type == "text",
-               let text = part["text"] as? String
-            {
-                buf.append(text)
-            }
-        }
-        return buf.isEmpty ? nil : buf
-    }
-    return nil
-}
-
-// MARK: - Tool parsing
-
-/// Decode the Rust-supplied tools JSON into `[ToolSpec]`. `ToolSpec`
-/// is just `[String: any Sendable]` (a JSON dict) so we route through
-/// `JSONSerialization`.
-func decodeTools(_ json: String?) throws -> [ToolSpec]? {
-    guard let json = json, !json.isEmpty else { return nil }
-    guard let data = json.data(using: .utf8) else {
-        throw FFIError.invalidArg("tools_json not valid UTF-8")
-    }
-    let obj: Any
-    do {
-        obj = try JSONSerialization.jsonObject(with: data, options: [])
-    } catch {
-        throw FFIError.invalidArg("tools_json parse error: \(error)")
-    }
-    guard let array = obj as? [[String: Any]] else {
-        throw FFIError.invalidArg("tools_json must be an array of objects")
-    }
-    return array.map { $0 as ToolSpec }
-}
-
 // MARK: - Internal error type
 
 enum FFIError: Error {
@@ -515,7 +393,7 @@ func runGenerationWithContainer(
         let stream = chat.streamDetails(
             to: decoded.lastPrompt,
             role: decoded.lastRole,
-            images: [],
+            images: decoded.lastImages,
             videos: []
         )
         for try await gen in stream {

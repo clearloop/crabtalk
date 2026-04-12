@@ -526,6 +526,7 @@ dependencies = [
 name = "crabllm-mlx"
 version = "0.0.15"
 dependencies = [
+ "base64",
  "clap",
  "crabllm-core",
  "futures",

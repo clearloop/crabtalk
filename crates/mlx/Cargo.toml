@@ -17,6 +17,10 @@ categories = ["api-bindings"]
 name = "chat"
 path = "examples/chat.rs"
 
+[[example]]
+name = "vlm_smoke"
+path = "examples/vlm_smoke.rs"
+
 [dependencies]
 crabllm-core.workspace = true
 futures.workspace = true
@@ -28,5 +32,6 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+base64.workspace = true
 clap.workspace = true
 tracing-subscriber.workspace = true
