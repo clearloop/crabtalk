@@ -1,3 +1,4 @@
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 
 /// Per-key rate limit (mirrors server-side KeyRateLimit).
@@ -75,6 +76,75 @@ pub struct BudgetEntry {
     pub spent_usd: f64,
     pub budget_usd: f64,
     pub remaining_usd: f64,
+}
+
+/// Provider implementation kind (mirrors server-side ProviderKind).
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, ValueEnum)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderKind {
+    Openai,
+    Anthropic,
+    Google,
+    Bedrock,
+    Ollama,
+    Azure,
+}
+
+impl std::fmt::Display for ProviderKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Openai => "openai",
+            Self::Anthropic => "anthropic",
+            Self::Google => "google",
+            Self::Bedrock => "bedrock",
+            Self::Ollama => "ollama",
+            Self::Azure => "azure",
+        })
+    }
+}
+
+/// POST /v1/admin/providers request body.
+#[derive(Serialize)]
+pub struct CreateProviderRequest {
+    pub name: String,
+    pub kind: ProviderKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub models: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weight: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_retries: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret_key: Option<String>,
+}
+
+/// GET /v1/admin/providers response (secrets masked).
+#[derive(Deserialize, Serialize)]
+pub struct ProviderSummary {
+    pub name: String,
+    pub kind: ProviderKind,
+    pub api_key_prefix: Option<String>,
+    pub base_url: Option<String>,
+    pub models: Vec<String>,
+    pub weight: Option<u16>,
+    pub max_retries: Option<u32>,
+    pub api_version: Option<String>,
+    pub timeout: Option<u64>,
+    pub region: Option<String>,
+    pub access_key_prefix: Option<String>,
+    pub source: String,
 }
 
 /// GET /v1/admin/logs entry.

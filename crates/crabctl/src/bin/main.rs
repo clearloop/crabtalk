@@ -4,7 +4,10 @@ use crabctl::{
     config::Config,
     error::Error,
     output::{print_kv, print_table},
-    types::{CreateKeyRequest, KeyRateLimit, format_rate_limit},
+    types::{
+        CreateKeyRequest, CreateProviderRequest, KeyRateLimit, ProviderKind, ProviderSummary,
+        format_rate_limit,
+    },
 };
 
 #[derive(Parser)]
@@ -120,6 +123,94 @@ enum KeyCommands {
 
 #[derive(Subcommand)]
 enum ProviderCommands {
+    /// List all providers
+    List,
+    /// Get provider details
+    Get {
+        /// Provider name
+        name: String,
+    },
+    /// Create a new dynamic provider
+    Create {
+        /// Provider name
+        name: String,
+        /// Provider implementation kind
+        #[arg(long, value_enum)]
+        kind: ProviderKind,
+        /// Models served by this provider (comma-separated)
+        #[arg(long, value_delimiter = ',', required = true)]
+        models: Vec<String>,
+        /// API key
+        #[arg(long)]
+        api_key: Option<String>,
+        /// Base URL override
+        #[arg(long)]
+        base_url: Option<String>,
+        /// Routing weight for weighted random selection
+        #[arg(long)]
+        weight: Option<u16>,
+        /// Max retries on transient errors
+        #[arg(long)]
+        max_retries: Option<u32>,
+        /// API version (Azure)
+        #[arg(long)]
+        api_version: Option<String>,
+        /// Per-request timeout in seconds
+        #[arg(long)]
+        timeout: Option<u64>,
+        /// AWS region (Bedrock)
+        #[arg(long)]
+        region: Option<String>,
+        /// AWS access key (Bedrock)
+        #[arg(long)]
+        access_key: Option<String>,
+        /// AWS secret key (Bedrock)
+        #[arg(long)]
+        secret_key: Option<String>,
+    },
+    /// Update a dynamic provider (JSON Merge Patch)
+    Update {
+        /// Provider name
+        name: String,
+        /// Provider implementation kind
+        #[arg(long, value_enum)]
+        kind: Option<ProviderKind>,
+        /// Models (comma-separated)
+        #[arg(long, value_delimiter = ',')]
+        models: Option<Vec<String>>,
+        /// API key
+        #[arg(long)]
+        api_key: Option<String>,
+        /// Base URL override
+        #[arg(long)]
+        base_url: Option<String>,
+        /// Routing weight
+        #[arg(long)]
+        weight: Option<u16>,
+        /// Max retries
+        #[arg(long)]
+        max_retries: Option<u32>,
+        /// API version
+        #[arg(long)]
+        api_version: Option<String>,
+        /// Timeout in seconds
+        #[arg(long)]
+        timeout: Option<u64>,
+        /// AWS region
+        #[arg(long)]
+        region: Option<String>,
+        /// AWS access key
+        #[arg(long)]
+        access_key: Option<String>,
+        /// AWS secret key
+        #[arg(long)]
+        secret_key: Option<String>,
+    },
+    /// Delete a dynamic provider
+    Delete {
+        /// Provider name
+        name: String,
+    },
     /// Reload providers from config file
     Reload,
 }
@@ -292,6 +383,139 @@ async fn run_providers(
     json: bool,
 ) -> Result<(), Error> {
     match cmd {
+        ProviderCommands::List => {
+            let providers = client.list_providers().await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&providers).unwrap());
+                return Ok(());
+            }
+            let rows: Vec<Vec<String>> = providers
+                .iter()
+                .map(|p| {
+                    vec![
+                        p.name.clone(),
+                        p.kind.to_string(),
+                        p.models.join(", "),
+                        p.base_url.clone().unwrap_or_else(|| "-".into()),
+                        p.api_key_prefix.clone().unwrap_or_else(|| "-".into()),
+                        p.weight.map_or("-".into(), |v| v.to_string()),
+                        p.source.clone(),
+                    ]
+                })
+                .collect();
+            print_table(
+                &["NAME", "KIND", "MODELS", "BASE URL", "API KEY", "WEIGHT", "SOURCE"],
+                &rows,
+            );
+        }
+        ProviderCommands::Get { name } => {
+            let p = client.get_provider(&name).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&p).unwrap());
+                return Ok(());
+            }
+            print_provider_detail(&p);
+        }
+        ProviderCommands::Create {
+            name,
+            kind,
+            models,
+            api_key,
+            base_url,
+            weight,
+            max_retries,
+            api_version,
+            timeout,
+            region,
+            access_key,
+            secret_key,
+        } => {
+            let req = CreateProviderRequest {
+                name,
+                kind,
+                api_key,
+                base_url,
+                models,
+                weight,
+                max_retries,
+                api_version,
+                timeout,
+                region,
+                access_key,
+                secret_key,
+            };
+            let p = client.create_provider(&req).await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&p).unwrap());
+                return Ok(());
+            }
+            print_provider_detail(&p);
+        }
+        ProviderCommands::Update {
+            name,
+            kind,
+            models,
+            api_key,
+            base_url,
+            weight,
+            max_retries,
+            api_version,
+            timeout,
+            region,
+            access_key,
+            secret_key,
+        } => {
+            let mut patch = serde_json::Map::new();
+            if let Some(v) = kind {
+                patch.insert("kind".into(), serde_json::to_value(v).unwrap());
+            }
+            if let Some(v) = models {
+                patch.insert("models".into(), serde_json::json!(v));
+            }
+            if let Some(v) = api_key {
+                patch.insert("api_key".into(), serde_json::json!(v));
+            }
+            if let Some(v) = base_url {
+                patch.insert("base_url".into(), serde_json::json!(v));
+            }
+            if let Some(v) = weight {
+                patch.insert("weight".into(), serde_json::json!(v));
+            }
+            if let Some(v) = max_retries {
+                patch.insert("max_retries".into(), serde_json::json!(v));
+            }
+            if let Some(v) = api_version {
+                patch.insert("api_version".into(), serde_json::json!(v));
+            }
+            if let Some(v) = timeout {
+                patch.insert("timeout".into(), serde_json::json!(v));
+            }
+            if let Some(v) = region {
+                patch.insert("region".into(), serde_json::json!(v));
+            }
+            if let Some(v) = access_key {
+                patch.insert("access_key".into(), serde_json::json!(v));
+            }
+            if let Some(v) = secret_key {
+                patch.insert("secret_key".into(), serde_json::json!(v));
+            }
+            if patch.is_empty() {
+                eprintln!("error: nothing to update (pass at least one field)");
+                std::process::exit(1);
+            }
+            let p = client
+                .update_provider(&name, &serde_json::Value::Object(patch))
+                .await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&p).unwrap());
+                return Ok(());
+            }
+            print_provider_detail(&p);
+        }
+        ProviderCommands::Delete { name } => {
+            client.delete_provider(&name).await?;
+            println!("Provider '{name}' deleted.");
+        }
         ProviderCommands::Reload => {
             let resp = client.reload_providers().await?;
             if json {
@@ -305,6 +529,33 @@ async fn run_providers(
         }
     }
     Ok(())
+}
+
+fn print_provider_detail(p: &ProviderSummary) {
+    let kind = p.kind.to_string();
+    let models = p.models.join(", ");
+    let api_key = p.api_key_prefix.clone().unwrap_or_else(|| "-".into());
+    let base_url = p.base_url.clone().unwrap_or_else(|| "-".into());
+    let weight = p.weight.map_or("-".into(), |v| v.to_string());
+    let max_retries = p.max_retries.map_or("-".into(), |v| v.to_string());
+    let api_version = p.api_version.clone().unwrap_or_else(|| "-".into());
+    let timeout = p.timeout.map_or("-".into(), |v| v.to_string());
+    let region = p.region.clone().unwrap_or_else(|| "-".into());
+    let access_key = p.access_key_prefix.clone().unwrap_or_else(|| "-".into());
+    print_kv(&[
+        ("Name", &p.name),
+        ("Kind", &kind),
+        ("Models", &models),
+        ("API Key", &api_key),
+        ("Base URL", &base_url),
+        ("Weight", &weight),
+        ("Max Retries", &max_retries),
+        ("API Version", &api_version),
+        ("Timeout", &timeout),
+        ("Region", &region),
+        ("Access Key", &access_key),
+        ("Source", &p.source),
+    ]);
 }
 
 async fn run_usage(

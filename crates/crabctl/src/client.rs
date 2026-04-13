@@ -1,8 +1,8 @@
 use crate::{
     error::Error,
     types::{
-        AuditRecord, BudgetEntry, CreateKeyRequest, KeyResponse, KeySummary, ReloadResponse,
-        UsageEntry,
+        AuditRecord, BudgetEntry, CreateKeyRequest, CreateProviderRequest, KeyResponse, KeySummary,
+        ProviderSummary, ReloadResponse, UsageEntry,
     },
 };
 use reqwest::StatusCode;
@@ -173,6 +173,40 @@ impl AdminClient {
             .await?
             .json()
             .await?)
+    }
+
+    pub async fn list_providers(&self) -> Result<Vec<ProviderSummary>, Error> {
+        Ok(self.get("/v1/admin/providers").await?.json().await?)
+    }
+
+    pub async fn get_provider(&self, name: &str) -> Result<ProviderSummary, Error> {
+        let path = format!("/v1/admin/providers/{}", encode(name));
+        Ok(self.get(&path).await?.json().await?)
+    }
+
+    pub async fn create_provider(
+        &self,
+        req: &CreateProviderRequest,
+    ) -> Result<ProviderSummary, Error> {
+        Ok(self
+            .post_json("/v1/admin/providers", req)
+            .await?
+            .json()
+            .await?)
+    }
+
+    pub async fn update_provider(
+        &self,
+        name: &str,
+        patch: &serde_json::Value,
+    ) -> Result<ProviderSummary, Error> {
+        let path = format!("/v1/admin/providers/{}", encode(name));
+        Ok(self.patch_json(&path, patch).await?.json().await?)
+    }
+
+    pub async fn delete_provider(&self, name: &str) -> Result<(), Error> {
+        let path = format!("/v1/admin/providers/{}", encode(name));
+        self.delete(&path).await
     }
 
     // ── Usage ──
