@@ -13,7 +13,6 @@ pub use state::{AppState, UsageEvent};
 // Storage table prefixes. Each 4-byte prefix namespaces a logical table
 // in the key-value storage backend.
 pub const PREFIX_KEYS: Prefix = *b"keys";
-pub const PREFIX_MODELS: Prefix = *b"modl";
 pub const PREFIX_RATE_LIMIT: Prefix = *b"rlim";
 pub const PREFIX_USAGE: Prefix = *b"usge";
 pub const PREFIX_CACHE: Prefix = *b"cach";
@@ -21,7 +20,6 @@ pub const PREFIX_BUDGET: Prefix = *b"bdgt";
 pub const PREFIX_AUDIT: Prefix = *b"alog";
 
 pub mod admin;
-pub mod admin_models;
 pub mod admin_providers;
 pub mod anthropic;
 pub mod auth;

@@ -222,18 +222,9 @@ async fn run<S: Storage + 'static>(
     registry: ProviderRegistry<Dispatch>,
     storage: Arc<S>,
 ) {
-    // Initialize model metadata overrides from storage.
-    let model_overrides = Arc::new(RwLock::new(HashMap::new()));
-    crabllm_proxy::admin_models::load_stored_models(
-        storage.as_ref() as &dyn crabllm_core::Storage,
-        &model_overrides,
-    )
-    .await;
-
     let (extensions, mut admin_routes) = match build_extensions(
         &config,
         storage.clone() as Arc<dyn Storage>,
-        model_overrides.clone(),
     ) {
         Ok(result) => result,
         Err(e) => {
@@ -292,13 +283,6 @@ async fn run<S: Storage + 'static>(
             admin_token.clone(),
             config.keys.clone(),
         ));
-        admin_routes.push(crabllm_proxy::admin_models::model_admin_routes(
-            storage.clone() as Arc<dyn crabllm_core::Storage>,
-            model_overrides.clone(),
-            config.clone(),
-            config_path.clone(),
-            admin_token.clone(),
-        ));
         let rebuilder: crabllm_proxy::admin_providers::Rebuilder<Dispatch> =
             Arc::new(|config: &GatewayConfig| {
                 ProviderRegistry::from_config(config, Dispatch::Remote)
@@ -320,7 +304,6 @@ async fn run<S: Storage + 'static>(
         extensions: Arc::new(extensions),
         storage,
         key_map,
-        model_overrides,
         usage_events: None,
     };
 
@@ -421,7 +404,6 @@ type Extensions = (Vec<Box<dyn Extension>>, Vec<axum::Router>);
 fn build_extensions(
     config: &GatewayConfig,
     storage: Arc<dyn Storage>,
-    model_overrides: Arc<RwLock<HashMap<String, crabllm_core::ModelInfo>>>,
 ) -> Result<Extensions, String> {
     let mut extensions: Vec<Box<dyn Extension>> = Vec::new();
     let mut admin_routes: Vec<axum::Router> = Vec::new();
@@ -454,7 +436,6 @@ fn build_extensions(
                     value,
                     storage.clone(),
                     config.models.clone(),
-                    model_overrides.clone(),
                 )?;
                 admin_routes.push(ext.admin_routes());
                 extensions.push(Box::new(ext));
@@ -469,7 +450,6 @@ fn build_extensions(
                     value,
                     storage.clone(),
                     config.models.clone(),
-                    model_overrides.clone(),
                 )?;
                 admin_routes.push(ext.admin_routes());
                 extensions.push(Box::new(ext));

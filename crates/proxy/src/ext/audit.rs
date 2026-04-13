@@ -8,7 +8,7 @@ use axum::{
 };
 use crabllm_core::{
     ApiError, BoxFuture, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Error,
-    ModelInfo, RequestContext, Storage, resolve_model_info_full, storage_key,
+    ModelInfo, RequestContext, Storage, storage_key,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc, time::SystemTime};
@@ -16,7 +16,6 @@ use std::{collections::HashMap, sync::Arc, time::SystemTime};
 pub struct AuditLogger {
     storage: Arc<dyn Storage>,
     models: HashMap<String, ModelInfo>,
-    model_overrides: Arc<std::sync::RwLock<HashMap<String, ModelInfo>>>,
 }
 
 impl AuditLogger {
@@ -24,13 +23,8 @@ impl AuditLogger {
         _config: &serde_json::Value,
         storage: Arc<dyn Storage>,
         models: HashMap<String, ModelInfo>,
-        model_overrides: Arc<std::sync::RwLock<HashMap<String, ModelInfo>>>,
     ) -> Result<Self, String> {
-        Ok(Self {
-            storage,
-            models,
-            model_overrides,
-        })
+        Ok(Self { storage, models })
     }
 
     pub fn admin_routes(&self) -> Router {
@@ -40,13 +34,10 @@ impl AuditLogger {
     }
 
     fn cost_micros(&self, model: &str, provider: &str, prompt: u32, completion: u32) -> i64 {
-        let guard = self
-            .model_overrides
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
         let qualified = format!("{provider}/{model}");
-        resolve_model_info_full(&qualified, &guard, &self.models)
-            .or_else(|| resolve_model_info_full(model, &guard, &self.models))
+        self.models
+            .get(qualified.as_str())
+            .or_else(|| self.models.get(model))
             .map(|info| (info.cost(prompt, completion) * 1_000_000.0).round() as i64)
             .unwrap_or(0)
     }

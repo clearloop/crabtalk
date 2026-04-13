@@ -85,23 +85,6 @@ pub fn spec() -> utoipa::openapi::OpenApi {
                 (HttpMethod::Delete, "Revoke a virtual key"),
             ]),
         )
-        // ── Admin — models ──
-        .path(
-            "/v1/admin/models",
-            PathItem::new(HttpMethod::Get, op("List model metadata")),
-        )
-        .path(
-            "/v1/admin/models/flush",
-            PathItem::new(HttpMethod::Post, op("Flush model overrides to config")),
-        )
-        .path(
-            "/v1/admin/models/{model}",
-            multi(&[
-                (HttpMethod::Get, "Get model metadata"),
-                (HttpMethod::Put, "Upsert model metadata"),
-                (HttpMethod::Delete, "Remove model override"),
-            ]),
-        )
         // ── Admin — providers ──
         .path(
             "/v1/admin/providers/reload",
