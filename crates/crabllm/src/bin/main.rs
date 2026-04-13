@@ -311,6 +311,9 @@ async fn run<S: Storage + 'static>(
         ));
     }
 
+    #[cfg(feature = "openapi")]
+    let enable_openapi = config.openapi;
+
     let state: AppState<S, Dispatch> = AppState {
         registry,
         config,
@@ -321,7 +324,22 @@ async fn run<S: Storage + 'static>(
         usage_events: None,
     };
 
-    let app = crabllm_proxy::router(state, admin_routes);
+    #[allow(unused_mut)]
+    let mut app = crabllm_proxy::router(state, admin_routes);
+
+    #[cfg(feature = "openapi")]
+    if enable_openapi {
+        use utoipa_scalar::Servable;
+        let spec = crabllm_proxy::openapi::spec();
+        app = app
+            .merge(utoipa_scalar::Scalar::with_url("/docs", spec.clone()))
+            .route(
+                "/openapi.json",
+                axum::routing::get(move || async { axum::Json(spec) }),
+            );
+        eprintln!("openapi docs enabled at /docs");
+    }
+
     let listener = match tokio::net::TcpListener::bind(&addr).await {
         Ok(l) => l,
         Err(e) => {

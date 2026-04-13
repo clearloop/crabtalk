@@ -27,6 +27,8 @@ pub mod anthropic;
 pub mod auth;
 pub mod ext;
 pub(crate) mod handlers;
+#[cfg(feature = "openapi")]
+pub mod openapi;
 mod state;
 pub mod storage;
 

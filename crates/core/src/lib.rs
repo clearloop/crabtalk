@@ -21,6 +21,8 @@ mod config;
 mod error;
 mod extension;
 mod model_info;
+#[cfg(feature = "openapi")]
+mod openapi;
 mod provider;
 mod storage;
 mod types;
