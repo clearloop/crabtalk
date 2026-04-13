@@ -256,12 +256,18 @@ fn canned_models() -> ModelList {
                 object: "model".into(),
                 created: 0,
                 owned_by: "mock".into(),
+                context_length: None,
+                pricing: None,
+                vision: None,
             },
             Model {
                 id: "bench-embed".into(),
                 object: "model".into(),
                 created: 0,
                 owned_by: "mock".into(),
+                context_length: None,
+                pricing: None,
+                vision: None,
             },
         ],
     }

@@ -179,7 +179,7 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
                     std::process::exit(1);
                 }
             };
-            run(config, registry, storage).await;
+            run(config, config_path.clone(), registry, storage).await;
         }
         #[cfg(not(feature = "storage-redis"))]
         "redis" => {
@@ -201,7 +201,7 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
                     std::process::exit(1);
                 }
             };
-            run(config, registry, storage).await;
+            run(config, config_path.clone(), registry, storage).await;
         }
         #[cfg(not(feature = "storage-sqlite"))]
         "sqlite" => {
@@ -210,24 +210,36 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
         }
         _ => {
             let storage = Arc::new(MemoryStorage::new());
-            run(config, registry, storage).await;
+            run(config, config_path.clone(), registry, storage).await;
         }
     }
 }
 
 async fn run<S: Storage + 'static>(
     config: GatewayConfig,
+    config_path: PathBuf,
     registry: ProviderRegistry<Dispatch>,
     storage: Arc<S>,
 ) {
-    let (extensions, mut admin_routes) =
-        match build_extensions(&config, storage.clone() as Arc<dyn Storage>) {
-            Ok(result) => result,
-            Err(e) => {
-                eprintln!("error: failed to build extensions: {e}");
-                std::process::exit(1);
-            }
-        };
+    // Initialize model metadata overrides from storage.
+    let model_overrides = Arc::new(RwLock::new(HashMap::new()));
+    crabllm_proxy::admin_models::load_stored_models(
+        storage.as_ref() as &dyn crabllm_core::Storage,
+        &model_overrides,
+    )
+    .await;
+
+    let (extensions, mut admin_routes) = match build_extensions(
+        &config,
+        storage.clone() as Arc<dyn Storage>,
+        model_overrides.clone(),
+    ) {
+        Ok(result) => result,
+        Err(e) => {
+            eprintln!("error: failed to build extensions: {e}");
+            std::process::exit(1);
+        }
+    };
 
     // Install Prometheus metrics recorder and expose /metrics endpoint.
     let handle = metrics_exporter_prometheus::PrometheusBuilder::new()
@@ -260,13 +272,20 @@ async fn run<S: Storage + 'static>(
     )
     .await;
 
-    // Enable admin key management if admin_token is configured.
+    // Enable admin APIs if admin_token is configured.
     if let Some(ref admin_token) = config.admin_token {
         admin_routes.push(crabllm_proxy::admin::key_admin_routes(
             storage.clone() as Arc<dyn crabllm_core::Storage>,
             key_map.clone(),
             admin_token.clone(),
             config.keys.clone(),
+        ));
+        admin_routes.push(crabllm_proxy::admin_models::model_admin_routes(
+            storage.clone() as Arc<dyn crabllm_core::Storage>,
+            model_overrides.clone(),
+            config.clone(),
+            config_path,
+            admin_token.clone(),
         ));
     }
 
@@ -276,6 +295,7 @@ async fn run<S: Storage + 'static>(
         extensions: Arc::new(extensions),
         storage,
         key_map,
+        model_overrides,
         usage_events: None,
     };
 
@@ -361,6 +381,7 @@ type Extensions = (Vec<Box<dyn Extension>>, Vec<axum::Router>);
 fn build_extensions(
     config: &GatewayConfig,
     storage: Arc<dyn Storage>,
+    model_overrides: Arc<RwLock<HashMap<String, crabllm_core::ModelInfo>>>,
 ) -> Result<Extensions, String> {
     let mut extensions: Vec<Box<dyn Extension>> = Vec::new();
     let mut admin_routes: Vec<axum::Router> = Vec::new();
@@ -389,7 +410,12 @@ fn build_extensions(
                 extensions.push(Box::new(ext));
             }
             "budget" => {
-                let ext = Budget::new(value, storage.clone(), config.pricing.clone())?;
+                let ext = Budget::new(
+                    value,
+                    storage.clone(),
+                    config.models.clone(),
+                    model_overrides.clone(),
+                )?;
                 admin_routes.push(ext.admin_routes());
                 extensions.push(Box::new(ext));
             }
@@ -399,7 +425,12 @@ fn build_extensions(
                 has_logging = true;
             }
             "audit" => {
-                let ext = AuditLogger::new(value, storage.clone(), config.pricing.clone())?;
+                let ext = AuditLogger::new(
+                    value,
+                    storage.clone(),
+                    config.models.clone(),
+                    model_overrides.clone(),
+                )?;
                 admin_routes.push(ext.admin_routes());
                 extensions.push(Box::new(ext));
             }
