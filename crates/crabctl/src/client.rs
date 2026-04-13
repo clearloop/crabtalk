@@ -1,6 +1,9 @@
 use crate::{
     error::Error,
-    types::{CreateKeyRequest, KeyResponse, KeySummary},
+    types::{
+        AuditRecord, BudgetEntry, CreateKeyRequest, KeyResponse, KeySummary, ReloadResponse,
+        UsageEntry,
+    },
 };
 use reqwest::StatusCode;
 use serde::Deserialize;
@@ -94,7 +97,6 @@ impl AdminClient {
         Self::check(resp).await
     }
 
-    #[allow(dead_code)]
     async fn post_empty(&self, path: &str) -> Result<reqwest::Response, Error> {
         let resp = self
             .client
@@ -161,5 +163,79 @@ impl AdminClient {
     pub async fn delete_key(&self, name: &str) -> Result<(), Error> {
         let path = format!("/v1/admin/keys/{}", encode(name));
         self.delete(&path).await
+    }
+
+    // ── Providers ──
+
+    pub async fn reload_providers(&self) -> Result<ReloadResponse, Error> {
+        Ok(self
+            .post_empty("/v1/admin/providers/reload")
+            .await?
+            .json()
+            .await?)
+    }
+
+    // ── Usage ──
+
+    pub async fn usage(
+        &self,
+        name: Option<&str>,
+        model: Option<&str>,
+    ) -> Result<Vec<UsageEntry>, Error> {
+        let mut path = String::from("/v1/admin/usage");
+        append_query(&mut path, &[("name", name), ("model", model)]);
+        Ok(self.get(&path).await?.json().await?)
+    }
+
+    // ── Budget ──
+
+    pub async fn budget(&self) -> Result<Vec<BudgetEntry>, Error> {
+        Ok(self.get("/v1/budget").await?.json().await?)
+    }
+
+    // ── Logs ──
+
+    pub async fn logs(
+        &self,
+        key: Option<&str>,
+        model: Option<&str>,
+        since: Option<i64>,
+        until: Option<i64>,
+        limit: usize,
+    ) -> Result<Vec<AuditRecord>, Error> {
+        let since = since.map(|v| v.to_string());
+        let until = until.map(|v| v.to_string());
+        let limit = limit.to_string();
+        let mut path = String::from("/v1/admin/logs");
+        append_query(
+            &mut path,
+            &[
+                ("key", key),
+                ("model", model),
+                ("since", since.as_deref()),
+                ("until", until.as_deref()),
+                ("limit", Some(&limit)),
+            ],
+        );
+        Ok(self.get(&path).await?.json().await?)
+    }
+
+    // ── Cache ──
+
+    pub async fn clear_cache(&self) -> Result<(), Error> {
+        self.delete("/v1/cache").await
+    }
+}
+
+fn append_query(path: &mut String, params: &[(&str, Option<&str>)]) {
+    let mut first = true;
+    for (k, v) in params {
+        if let Some(val) = v {
+            path.push(if first { '?' } else { '&' });
+            path.push_str(k);
+            path.push('=');
+            path.push_str(&encode(val));
+            first = false;
+        }
     }
 }

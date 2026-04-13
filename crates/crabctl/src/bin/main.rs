@@ -287,42 +287,140 @@ fn rate_limit_from_flags(rpm: Option<u64>, tpm: Option<u64>) -> Option<KeyRateLi
 }
 
 async fn run_providers(
-    _client: &AdminClient,
-    _cmd: ProviderCommands,
-    _json: bool,
+    client: &AdminClient,
+    cmd: ProviderCommands,
+    json: bool,
 ) -> Result<(), Error> {
-    Err(Error::Config("providers commands not yet implemented".into()))
+    match cmd {
+        ProviderCommands::Reload => {
+            let resp = client.reload_providers().await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&resp).unwrap());
+                return Ok(());
+            }
+            println!(
+                "Providers reloaded: {} models, {} providers.",
+                resp.models, resp.providers
+            );
+        }
+    }
+    Ok(())
 }
 
 async fn run_usage(
-    _client: &AdminClient,
-    _key: Option<String>,
-    _model: Option<String>,
-    _json: bool,
+    client: &AdminClient,
+    key: Option<String>,
+    model: Option<String>,
+    json: bool,
 ) -> Result<(), Error> {
-    Err(Error::Config("usage command not yet implemented".into()))
+    let entries = client.usage(key.as_deref(), model.as_deref()).await?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&entries).unwrap());
+        return Ok(());
+    }
+    let rows: Vec<Vec<String>> = entries
+        .iter()
+        .map(|e| {
+            vec![
+                e.name.clone(),
+                e.model.clone(),
+                e.prompt_tokens.to_string(),
+                e.completion_tokens.to_string(),
+            ]
+        })
+        .collect();
+    print_table(
+        &["KEY", "MODEL", "PROMPT TOKENS", "COMPLETION TOKENS"],
+        &rows,
+    );
+    Ok(())
 }
 
-async fn run_budget(_client: &AdminClient, _json: bool) -> Result<(), Error> {
-    Err(Error::Config("budget command not yet implemented".into()))
+async fn run_budget(client: &AdminClient, json: bool) -> Result<(), Error> {
+    let entries = client.budget().await?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&entries).unwrap());
+        return Ok(());
+    }
+    let rows: Vec<Vec<String>> = entries
+        .iter()
+        .map(|e| {
+            vec![
+                e.key.clone(),
+                format!("{:.6}", e.spent_usd),
+                format!("{:.6}", e.budget_usd),
+                format!("{:.6}", e.remaining_usd),
+            ]
+        })
+        .collect();
+    print_table(
+        &["KEY", "SPENT (USD)", "BUDGET (USD)", "REMAINING (USD)"],
+        &rows,
+    );
+    Ok(())
 }
 
 async fn run_logs(
-    _client: &AdminClient,
-    _key: Option<String>,
-    _model: Option<String>,
-    _since: Option<i64>,
-    _until: Option<i64>,
-    _limit: usize,
-    _json: bool,
+    client: &AdminClient,
+    key: Option<String>,
+    model: Option<String>,
+    since: Option<i64>,
+    until: Option<i64>,
+    limit: usize,
+    json: bool,
 ) -> Result<(), Error> {
-    Err(Error::Config("logs command not yet implemented".into()))
+    let records = client
+        .logs(key.as_deref(), model.as_deref(), since, until, limit)
+        .await?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&records).unwrap());
+        return Ok(());
+    }
+    let rows: Vec<Vec<String>> = records
+        .iter()
+        .map(|r| {
+            let tokens = match (r.prompt_tokens, r.completion_tokens) {
+                (Some(p), Some(c)) => format!("{p}/{c}"),
+                _ => "-".into(),
+            };
+            let cost = format!("${:.6}", r.cost_micros as f64 / 1_000_000.0);
+            let latency = format!("{}ms", r.latency_ms);
+            vec![
+                r.timestamp.to_string(),
+                r.request_id.clone(),
+                r.key_name.clone(),
+                r.model.clone(),
+                r.provider.clone(),
+                tokens,
+                cost,
+                latency,
+                r.status.to_string(),
+            ]
+        })
+        .collect();
+    print_table(
+        &[
+            "TIMESTAMP",
+            "REQUEST ID",
+            "KEY",
+            "MODEL",
+            "PROVIDER",
+            "TOKENS",
+            "COST",
+            "LATENCY",
+            "STATUS",
+        ],
+        &rows,
+    );
+    Ok(())
 }
 
-async fn run_cache(
-    _client: &AdminClient,
-    _cmd: CacheCommands,
-    _json: bool,
-) -> Result<(), Error> {
-    Err(Error::Config("cache commands not yet implemented".into()))
+async fn run_cache(client: &AdminClient, cmd: CacheCommands, _json: bool) -> Result<(), Error> {
+    match cmd {
+        CacheCommands::Clear => {
+            client.clear_cache().await?;
+            println!("Cache cleared.");
+        }
+    }
+    Ok(())
 }
