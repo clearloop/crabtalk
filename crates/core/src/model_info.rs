@@ -146,16 +146,33 @@ pub fn resolve_model_info(
     model: &str,
     config_overrides: &HashMap<String, ModelInfo>,
 ) -> Option<ModelInfo> {
+    resolve_model_info_full(model, &HashMap::new(), config_overrides)
+}
+
+/// Full three-layer resolve: admin override > config override > static default.
+/// Each layer fills in `None` fields from the layer below.
+pub fn resolve_model_info_full(
+    model: &str,
+    admin_overrides: &HashMap<String, ModelInfo>,
+    config_overrides: &HashMap<String, ModelInfo>,
+) -> Option<ModelInfo> {
+    let admin = admin_overrides.get(model);
     let config = config_overrides.get(model);
     let default = default_model_info(model);
 
-    match (config, default) {
-        (Some(cfg), Some(def)) => {
-            let mut merged = cfg.clone();
-            merged.merge(&def);
-            Some(merged)
-        }
-        (Some(cfg), None) => Some(cfg.clone()),
-        (None, def) => def,
+    let mut result = match (admin, config, &default) {
+        (None, None, None) => return None,
+        (Some(a), _, _) => a.clone(),
+        (None, Some(c), _) => c.clone(),
+        (None, None, Some(d)) => d.clone(),
+    };
+
+    if let Some(c) = config {
+        result.merge(c);
     }
+    if let Some(ref d) = default {
+        result.merge(d);
+    }
+
+    Some(result)
 }

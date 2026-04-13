@@ -1,4 +1,4 @@
-use crabllm_core::{Extension, GatewayConfig, Provider, Storage};
+use crabllm_core::{Extension, GatewayConfig, ModelInfo, Provider, Storage};
 use crabllm_provider::ProviderRegistry;
 use std::{
     collections::HashMap,
@@ -55,6 +55,9 @@ pub struct AppState<S: Storage, P: Provider> {
     /// Precomputed token → key name lookup for O(1) auth.
     /// Wrapped in RwLock to support runtime key management.
     pub key_map: Arc<RwLock<HashMap<String, String>>>,
+    /// Runtime model metadata overrides from the admin API. Read by
+    /// extensions and the `/v1/models` handler on every request.
+    pub model_overrides: Arc<RwLock<HashMap<String, ModelInfo>>>,
     /// Optional broadcast sink for per-request [`UsageEvent`]s. `None`
     /// is a no-op — the standalone `crabllm serve` binary leaves it
     /// unset and behavior is unchanged. Embedders that want live
@@ -71,6 +74,7 @@ impl<S: Storage, P: Provider> Clone for AppState<S, P> {
             extensions: self.extensions.clone(),
             storage: self.storage.clone(),
             key_map: self.key_map.clone(),
+            model_overrides: self.model_overrides.clone(),
             usage_events: self.usage_events.clone(),
         }
     }

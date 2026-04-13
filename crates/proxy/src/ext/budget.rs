@@ -1,7 +1,7 @@
 use axum::{Json, Router, routing::get};
 use crabllm_core::{
     BoxFuture, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, ExtensionError,
-    ModelInfo, Prefix, RequestContext, Storage, resolve_model_info, storage_key,
+    ModelInfo, Prefix, RequestContext, Storage, resolve_model_info_full, storage_key,
 };
 use serde::Serialize;
 use std::{collections::HashMap, sync::Arc};
@@ -9,6 +9,7 @@ use std::{collections::HashMap, sync::Arc};
 pub struct Budget {
     storage: Arc<dyn Storage>,
     models: HashMap<String, ModelInfo>,
+    model_overrides: Arc<std::sync::RwLock<HashMap<String, ModelInfo>>>,
     default_budget_micros: i64,
     key_budgets: HashMap<String, i64>,
 }
@@ -20,6 +21,7 @@ impl Budget {
         config: &serde_json::Value,
         storage: Arc<dyn Storage>,
         models: HashMap<String, ModelInfo>,
+        model_overrides: Arc<std::sync::RwLock<HashMap<String, ModelInfo>>>,
     ) -> Result<Self, String> {
         let default_budget = config
             .get("default_budget")
@@ -48,6 +50,7 @@ impl Budget {
         Ok(Self {
             storage,
             models,
+            model_overrides,
             default_budget_micros,
             key_budgets,
         })
@@ -61,7 +64,11 @@ impl Budget {
     }
 
     fn cost_micros(&self, model: &str, prompt_tokens: u32, completion_tokens: u32) -> i64 {
-        let Some(info) = resolve_model_info(model, &self.models) else {
+        let guard = self
+            .model_overrides
+            .read()
+            .unwrap_or_else(|e| e.into_inner());
+        let Some(info) = resolve_model_info_full(model, &guard, &self.models) else {
             return 0;
         };
         (info.cost(prompt_tokens, completion_tokens) * 1_000_000.0).round() as i64
