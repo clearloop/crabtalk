@@ -150,15 +150,6 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
         config.listen = bind;
     }
 
-    let registry: ProviderRegistry<Dispatch> =
-        match ProviderRegistry::from_config(&config, Dispatch::Remote) {
-            Ok(r) => r,
-            Err(e) => {
-                eprintln!("error: failed to build provider registry: {e}");
-                std::process::exit(1);
-            }
-        };
-
     let storage_kind = config
         .storage
         .as_ref()
@@ -180,7 +171,7 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
                     std::process::exit(1);
                 }
             };
-            run(config, config_path.clone(), registry, storage).await;
+            run(config, config_path.clone(), storage).await;
         }
         #[cfg(not(feature = "storage-redis"))]
         "redis" => {
@@ -202,7 +193,7 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
                     std::process::exit(1);
                 }
             };
-            run(config, config_path.clone(), registry, storage).await;
+            run(config, config_path.clone(), storage).await;
         }
         #[cfg(not(feature = "storage-sqlite"))]
         "sqlite" => {
@@ -211,17 +202,33 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
         }
         _ => {
             let storage = Arc::new(MemoryStorage::new());
-            run(config, config_path.clone(), registry, storage).await;
+            run(config, config_path.clone(), storage).await;
         }
     }
 }
 
 async fn run<S: Storage + 'static>(
-    config: GatewayConfig,
+    mut config: GatewayConfig,
     config_path: PathBuf,
-    registry: ProviderRegistry<Dispatch>,
     storage: Arc<S>,
 ) {
+    // Merge dynamic providers from storage before building the registry.
+    // TOML providers take precedence on name conflicts.
+    crabllm_proxy::admin_providers::merge_stored_providers(
+        storage.as_ref() as &dyn Storage,
+        &mut config,
+    )
+    .await;
+
+    let registry: ProviderRegistry<Dispatch> =
+        match ProviderRegistry::from_config(&config, Dispatch::Remote) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("error: failed to build provider registry: {e}");
+                std::process::exit(1);
+            }
+        };
+
     let (extensions, mut admin_routes) =
         match build_extensions(&config, storage.clone() as Arc<dyn Storage>) {
             Ok(result) => result,
@@ -290,6 +297,7 @@ async fn run<S: Storage + 'static>(
             config_path,
             admin_token.clone(),
             rebuilder,
+            storage.clone() as Arc<dyn crabllm_core::Storage>,
         ));
     }
 
