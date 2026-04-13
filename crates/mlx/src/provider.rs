@@ -22,6 +22,7 @@ use crabllm_core::{
 };
 use futures::{channel::mpsc, stream::StreamExt};
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
@@ -30,6 +31,10 @@ use std::{
 #[derive(Clone)]
 pub struct MlxProvider {
     pool: Arc<MlxPool>,
+    /// Extra model aliases (alias → HF repo ID) for models not in the
+    /// build-time static registry. Checked before the static registry
+    /// in all resolve calls.
+    extra_models: HashMap<String, String>,
 }
 
 impl std::fmt::Debug for MlxProvider {
@@ -40,7 +45,27 @@ impl std::fmt::Debug for MlxProvider {
 
 impl MlxProvider {
     pub fn new(pool: Arc<MlxPool>) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            extra_models: HashMap::new(),
+        }
+    }
+
+    /// Create a provider with additional model aliases beyond the
+    /// build-time registry. Each entry maps a short alias to a full
+    /// HuggingFace repo ID (e.g. `"qwen3.5-0.6b"` → `"mlx-community/Qwen3.5-0.6B-MLX-4bit"`).
+    pub fn with_extra_models(pool: Arc<MlxPool>, extra_models: HashMap<String, String>) -> Self {
+        Self { pool, extra_models }
+    }
+
+    /// Resolve a model alias to a HF repo ID, checking extra models
+    /// first, then the static registry, then passing through as-is.
+    fn resolve_repo_id<'a>(&'a self, model_id: &'a str) -> &'a str {
+        self.extra_models
+            .get(model_id)
+            .map(|s| s.as_str())
+            .or_else(|| crate::registry::resolve(model_id))
+            .unwrap_or(model_id)
     }
 
     /// Snapshot the pool's loaded-model inventory. See
@@ -57,7 +82,7 @@ impl MlxProvider {
     /// explicitly before calling the provider.
     fn resolve_model_dir(&self, model_id: &str) -> Result<PathBuf, Error> {
         self.lookup_cached_model_dir(model_id).ok_or_else(|| {
-            let repo_id = crate::registry::resolve(model_id).unwrap_or(model_id);
+            let repo_id = self.resolve_repo_id(model_id);
             Error::Internal(format!(
                 "mlx: model not downloaded: {repo_id}. \
                  Use download::download_model() first."
@@ -70,7 +95,7 @@ impl MlxProvider {
         if as_path.exists() && as_path.is_dir() {
             return Some(as_path.to_path_buf());
         }
-        let repo_id = crate::registry::resolve(model_id).unwrap_or(model_id);
+        let repo_id = self.resolve_repo_id(model_id);
         download::cached_model_path(repo_id)
     }
 
