@@ -127,7 +127,6 @@ fn build_state(tx: broadcast::Sender<UsageEvent>) -> AppState<FakeStorage, FakeP
         extensions: Arc::new(Vec::new()),
         storage: Arc::new(FakeStorage),
         key_map: Arc::new(RwLock::new(HashMap::new())),
-        model_overrides: Arc::new(RwLock::new(HashMap::new())),
         usage_events: Some(tx),
     }
 }
@@ -198,7 +197,6 @@ async fn none_usage_events_is_zero_cost() {
         extensions: Arc::new(Vec::new()),
         storage: Arc::new(FakeStorage),
         key_map: Arc::new(RwLock::new(HashMap::new())),
-        model_overrides: Arc::new(RwLock::new(HashMap::new())),
         usage_events: None,
     };
 

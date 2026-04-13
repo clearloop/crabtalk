@@ -27,7 +27,7 @@ fn main() {
         let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
         fs::write(
             out_dir.join("model_registry.rs"),
-            "pub const MODEL_REGISTRY: &[(&str, &str, ModelKind, u64)] = &[];\n",
+            "pub const MODEL_REGISTRY: &[ModelEntry] = &[];\n",
         )
         .expect("write empty model_registry.rs");
         return;
@@ -280,69 +280,60 @@ fn compile_metallib(mlx_dir: &Path) {
     println!("cargo:rustc-env=MLX_METALLIB_PATH={}", metallib.display());
 }
 
-/// Parse `models/local.toml` and generate a Rust registry at
-/// `$OUT_DIR/model_registry.rs`.
+/// Parse `models/local.toml` and generate `$OUT_DIR/model_registry.rs`.
 ///
-/// The `kind` column is emitted as a `ModelKind` variant, not a string
-/// tag — `ModelKind` is already in scope inside the generated file via
-/// `include!`, so the enum invariant is enforced by rustc at build time
-/// and no runtime parse / panic branch exists.
+/// Emits `ModelEntry` struct literals directly — `ModelKind` and
+/// `ModelEntry` are in scope via `include!`, so the enum and struct
+/// invariants are enforced by rustc at build time.
 fn generate_model_registry(mlx_dir: &Path) {
     let workspace_root = mlx_dir.parent().expect("mlx_dir has parent");
     let local_toml = workspace_root.join("models/local.toml");
     println!("cargo:rerun-if-changed={}", local_toml.display());
 
-    let entries = parse_local_toml(&local_toml);
-
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
-    let mut code = String::from(
-        "/// Auto-generated from models/local.toml.\n\
-         /// Each entry: (alias, hf_repo_id, kind, size_mb).\n\
-         pub const MODEL_REGISTRY: &[(&str, &str, ModelKind, u64)] = &[\n",
-    );
-    for (alias, id, kind, size_mb) in &entries {
-        code.push_str(&format!(
-            "    (\"{alias}\", \"{id}\", {kind}, {size_mb}),\n"
-        ));
-    }
-    code.push_str("];\n");
-
     let registry_path = out_dir.join("model_registry.rs");
-    fs::write(&registry_path, &code).expect("write model_registry.rs");
-}
+    let empty = "/// Auto-generated from models/local.toml.\n\
+                 pub const MODEL_REGISTRY: &[ModelEntry] = &[];\n";
 
-/// Parse `models/local.toml` into registry entries.
-///
-/// The TOML uses nested tables `[models.family.size.quant]` with fields
-/// `repo_id` and `size_mb`. This flattens them to
-/// `("family.size.quant", repo_id, ModelKind::Llm, size_mb)`.
-fn parse_local_toml(path: &Path) -> Vec<(String, String, &'static str, u64)> {
-    let source = match fs::read_to_string(path) {
+    let source = match fs::read_to_string(&local_toml) {
         Ok(s) => s,
         Err(e) => {
-            println!("cargo:warning=cannot read {}: {e}", path.display());
-            return Vec::new();
+            println!("cargo:warning=cannot read {}: {e}", local_toml.display());
+            fs::write(&registry_path, empty).expect("write model_registry.rs");
+            return;
         }
     };
-
     let table: toml::Table = match source.parse() {
         Ok(t) => t,
         Err(e) => {
-            println!("cargo:warning=cannot parse {}: {e}", path.display());
-            return Vec::new();
+            println!("cargo:warning=cannot parse {}: {e}", local_toml.display());
+            fs::write(&registry_path, empty).expect("write model_registry.rs");
+            return;
         }
     };
-
     let Some(toml::Value::Table(families)) = table.get("models") else {
-        return Vec::new();
+        fs::write(&registry_path, empty).expect("write model_registry.rs");
+        return;
     };
 
-    let mut entries = Vec::new();
+    /// Panic if a TOML string would break the generated Rust literal.
+    fn check_str(s: &str, field: &str) {
+        assert!(
+            !s.contains('"') && !s.contains('\\'),
+            "model registry: {field} contains quote or backslash: {s:?}"
+        );
+    }
+
+    let mut code = String::from(
+        "/// Auto-generated from models/local.toml.\n\
+         pub const MODEL_REGISTRY: &[ModelEntry] = &[\n",
+    );
+
     for (family, sizes) in families {
         let Some(sizes) = sizes.as_table() else {
             continue;
         };
-        for (size, quants) in sizes {
+        for (param_size, quants) in sizes {
             let Some(quants) = quants.as_table() else {
                 continue;
             };
@@ -357,12 +348,36 @@ fn parse_local_toml(path: &Path) -> Vec<(String, String, &'static str, u64)> {
                     .get("size_mb")
                     .and_then(|v| v.as_integer())
                     .unwrap_or(0) as u64;
-                let alias = format!("{family}.{size}.{quant}");
-                entries.push((alias, repo_id.to_string(), "ModelKind::Llm", size_mb));
+                let vision = entry
+                    .get("vision")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let arch = entry.get("arch").and_then(|v| v.as_str()).unwrap_or("");
+                let kind = if vision {
+                    "ModelKind::Vlm"
+                } else {
+                    "ModelKind::Llm"
+                };
+
+                check_str(family, "family");
+                check_str(param_size, "param_size");
+                check_str(quant, "quant");
+                check_str(repo_id, "repo_id");
+                check_str(arch, "arch");
+
+                let alias = format!("{family}.{param_size}.{quant}");
+                code.push_str(&format!(
+                    "    ModelEntry {{ alias: \"{alias}\", repo_id: \"{repo_id}\", \
+                     kind: {kind}, size_mb: {size_mb}, \
+                     family: \"{family}\", param_size: \"{param_size}\", \
+                     quant: \"{quant}\", arch: \"{arch}\" }},\n"
+                ));
             }
         }
     }
-    entries
+
+    code.push_str("];\n");
+    fs::write(&registry_path, &code).expect("write model_registry.rs");
 }
 
 /// True if the current target is an iOS simulator (not a device). We
