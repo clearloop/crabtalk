@@ -35,8 +35,8 @@ def parse_model(repo_id: str) -> tuple[str, str, str] | None:
     if not (size_match and quant_match):
         return None
 
-    quant = quant_match.group(1)
-    size = size_match.group(1)
+    quant = quant_match.group(1)  # e.g. "4bit"
+    size = size_match.group(1)  # e.g. "8b", "0.6b", "135m"
     # Family = everything before the size. Qualifiers between size and
     # quant (e.g., "-instruct") are appended to keep aliases unique.
     prefix = name[: size_match.start()]
@@ -106,6 +106,9 @@ def main():
             continue
         seen.add(key)
         size_mb = get_size_mb(m)
+        if size_mb is None:
+            skipped += 1
+            continue
         entries.append((family, size, quant, repo_id, size_mb))
 
     entries.sort()
@@ -128,15 +131,13 @@ def main():
     for family, size, quant, repo_id, size_mb in entries:
         lines.append(f"[models.{toml_key(family)}.{toml_key(size)}.{toml_key(quant)}]")
         lines.append(f'repo_id = "{repo_id}"')
-        if size_mb is not None:
-            lines.append(f"size_mb = {size_mb}")
+        lines.append(f"size_mb = {size_mb}")
         lines.append("")
 
     with open(OUTPUT, "w") as f:
         f.write("\n".join(lines))
 
-    with_size = sum(1 for *_, s in entries if s is not None)
-    print(f"Wrote {len(entries)} models to {OUTPUT} ({with_size} with size, {skipped} skipped, {dupes} dupes)")
+    print(f"Wrote {len(entries)} models to {OUTPUT} ({skipped} skipped, {dupes} dupes)")
 
 
 if __name__ == "__main__":
