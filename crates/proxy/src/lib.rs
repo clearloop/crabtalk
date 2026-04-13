@@ -63,6 +63,7 @@ where
             post(handlers::audio_transcriptions::<S, P>),
         )
         .route("/v1/models", get(handlers::models::<S, P>))
+        .route("/v1/usage", get(handlers::usage::<S, P>))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::auth::<S, P>,
