@@ -229,6 +229,9 @@ pub struct LocalModelEntry {
     /// Whether the model accepts image/video input (VLM).
     #[serde(default)]
     pub vision: Option<bool>,
+    /// Architecture / model_type from HuggingFace config (e.g. `"qwen2"`, `"llama"`).
+    #[serde(default)]
+    pub arch: Option<String>,
 }
 
 /// Wrapper for local model TOML: `[models.family.size.quant]` nested tables.

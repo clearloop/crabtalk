@@ -137,7 +137,7 @@ def main():
     # Parse into (family, size, quant, repo_id, size_mb).
     # Models are sorted by downloads (descending), so first occurrence wins.
     seen: set[tuple[str, str, str]] = set()
-    entries: list[tuple[str, str, str, str, int, bool]] = []
+    entries: list[tuple[str, str, str, str, int, bool, str]] = []
     skipped = 0
     unsupported = 0
     dupes = 0
@@ -165,7 +165,8 @@ def main():
         if size_mb is None:
             skipped += 1
             continue
-        entries.append((family, size, quant, repo_id, size_mb, is_vlm))
+        arch = model_type or ""
+        entries.append((family, size, quant, repo_id, size_mb, is_vlm, arch))
 
     entries.sort()
 
@@ -184,12 +185,14 @@ def main():
         """Quote a TOML key if it contains dots."""
         return f'"{s}"' if "." in s else s
 
-    for family, size, quant, repo_id, size_mb, is_vlm in entries:
+    for family, size, quant, repo_id, size_mb, is_vlm, arch in entries:
         lines.append(f"[models.{toml_key(family)}.{toml_key(size)}.{toml_key(quant)}]")
         lines.append(f'repo_id = "{repo_id}"')
         lines.append(f"size_mb = {size_mb}")
         if is_vlm:
             lines.append("vision = true")
+        if arch:
+            lines.append(f'arch = "{arch}"')
         lines.append("")
 
     with open(OUTPUT, "w") as f:
