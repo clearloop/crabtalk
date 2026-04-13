@@ -1,3 +1,4 @@
+use crate::PricingConfig;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -6,6 +7,10 @@ pub struct Model {
     pub object: String,
     pub created: u64,
     pub owned_by: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_length: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pricing: Option<PricingConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

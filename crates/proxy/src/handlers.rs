@@ -11,7 +11,7 @@ use axum::{
 use crabllm_core::{
     ApiError, AudioSpeechRequest, BoxStream, ChatCompletionChunk, ChatCompletionRequest,
     EmbeddingRequest, ImageRequest, Model, ModelList, MultipartField, Provider, RequestContext,
-    Storage,
+    Storage, resolve_model_info,
 };
 use crabllm_provider::Deployment;
 use futures::StreamExt;
@@ -585,11 +585,16 @@ where
 
     let data: Vec<Model> = names
         .into_iter()
-        .map(|name| Model {
-            id: name,
-            object: "model".to_string(),
-            created: 0,
-            owned_by: "crabllm".to_string(),
+        .map(|name| {
+            let info = resolve_model_info(&name, &state.config.models);
+            Model {
+                id: name,
+                object: "model".to_string(),
+                created: 0,
+                owned_by: "crabllm".to_string(),
+                context_length: info.as_ref().and_then(|i| i.context_length),
+                pricing: info.and_then(|i| i.pricing),
+            }
         })
         .collect();
 
