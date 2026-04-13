@@ -40,12 +40,14 @@ impl AuditLogger {
             .with_state(self.storage.clone())
     }
 
-    fn cost_micros(&self, model: &str, prompt: u32, completion: u32) -> i64 {
+    fn cost_micros(&self, model: &str, provider: &str, prompt: u32, completion: u32) -> i64 {
         let guard = self
             .model_overrides
             .read()
             .unwrap_or_else(|e| e.into_inner());
-        resolve_model_info_full(model, &guard, &self.models)
+        let qualified = format!("{provider}/{model}");
+        resolve_model_info_full(&qualified, &guard, &self.models)
+            .or_else(|| resolve_model_info_full(model, &guard, &self.models))
             .map(|info| (info.cost(prompt, completion) * 1_000_000.0).round() as i64)
             .unwrap_or(0)
     }
@@ -109,7 +111,7 @@ impl crabllm_core::Extension for AuditLogger {
             .unwrap_or((None, None));
 
         let cost_micros = match (prompt, completion) {
-            (Some(p), Some(c)) => self.cost_micros(&ctx.model, p, c),
+            (Some(p), Some(c)) => self.cost_micros(&ctx.model, &ctx.provider, p, c),
             _ => 0,
         };
 
@@ -135,8 +137,12 @@ impl crabllm_core::Extension for AuditLogger {
         // (despite stream_options.include_usage) produce no audit record.
         // The Extension trait has no on_stream_end hook to catch this.
         if let Some(ref usage) = chunk.usage {
-            let cost_micros =
-                self.cost_micros(&ctx.model, usage.prompt_tokens, usage.completion_tokens);
+            let cost_micros = self.cost_micros(
+                &ctx.model,
+                &ctx.provider,
+                usage.prompt_tokens,
+                usage.completion_tokens,
+            );
 
             self.write_record(AuditRecord {
                 request_id: ctx.request_id.clone(),

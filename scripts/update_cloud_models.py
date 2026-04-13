@@ -42,19 +42,21 @@ def should_skip(key: str) -> bool:
     return any(p in lower for p in SKIP_PATTERNS)
 
 
-def extract_model_name(key: str) -> str | None:
-    """Strip provider prefix from LiteLLM key to get the model name."""
-    # Some keys have provider prefix: "openai/gpt-4o", "anthropic/claude-..."
-    # Others are bare: "gpt-4o", "claude-3-5-sonnet-20241022"
+def extract_model_key(key: str) -> tuple[str, str] | None:
+    """Extract (provider_label, model_key) from a LiteLLM key.
+
+    Provider-prefixed keys like "openai/gpt-4o" become ("OpenAI", "openai/gpt-4o").
+    Bare keys like "gpt-4o" are kept as-is with provider from litellm_provider.
+    Returns None for providers we don't track.
+    """
     parts = key.split("/", 1)
     if len(parts) == 2:
-        provider_prefix, model = parts
-        # Skip providers we don't track
+        provider_prefix = parts[0]
         if provider_prefix not in PROVIDERS:
             return None
-        return model
-    # Bare key — include if it looks like a known model
-    return key
+        return (PROVIDERS[provider_prefix], key)
+    # Bare key — will get provider label from litellm_provider field later.
+    return ("", key)
 
 
 def to_toml_key(name: str) -> str:
@@ -82,9 +84,10 @@ def main():
         if should_skip(key):
             continue
 
-        model_name = extract_model_name(key)
-        if not model_name:
+        result = extract_model_key(key)
+        if not result:
             continue
+        provider_label, model_key = result
 
         # Need pricing and context length.
         input_cost = info.get("input_cost_per_token")
@@ -94,13 +97,14 @@ def main():
         if input_cost is None or context is None:
             continue
 
-        # Skip if we already have this model (first occurrence wins,
-        # which is usually the canonical entry).
-        if model_name in models:
+        # Skip duplicates.
+        if model_key in models:
             continue
 
-        provider = info.get("litellm_provider", "")
-        provider_label = PROVIDERS.get(provider.split("/")[0], provider)
+        # Resolve provider label from litellm_provider for bare keys.
+        if not provider_label:
+            provider = info.get("litellm_provider", "")
+            provider_label = PROVIDERS.get(provider.split("/")[0], provider)
 
         entry = {
             "context_length": int(context),
@@ -109,8 +113,8 @@ def main():
         }
         if info.get("supports_vision"):
             entry["vision"] = True
-        models[model_name] = entry
-        seen_providers[model_name] = provider_label
+        models[model_key] = entry
+        seen_providers[model_key] = provider_label
 
     # Group by provider for organized output.
     by_provider: dict[str, list[str]] = {}

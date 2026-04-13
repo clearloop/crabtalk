@@ -63,12 +63,22 @@ impl Budget {
             .unwrap_or(self.default_budget_micros)
     }
 
-    fn cost_micros(&self, model: &str, prompt_tokens: u32, completion_tokens: u32) -> i64 {
+    fn cost_micros(
+        &self,
+        model: &str,
+        provider: &str,
+        prompt_tokens: u32,
+        completion_tokens: u32,
+    ) -> i64 {
         let guard = self
             .model_overrides
             .read()
             .unwrap_or_else(|e| e.into_inner());
-        let Some(info) = resolve_model_info_full(model, &guard, &self.models) else {
+        // Try provider-qualified key first (e.g. "openai/gpt-4o"), fall back to bare model name.
+        let qualified = format!("{provider}/{model}");
+        let info = resolve_model_info_full(&qualified, &guard, &self.models)
+            .or_else(|| resolve_model_info_full(model, &guard, &self.models));
+        let Some(info) = info else {
             return 0;
         };
         (info.cost(prompt_tokens, completion_tokens) * 1_000_000.0).round() as i64
@@ -90,8 +100,15 @@ impl Budget {
         )
     }
 
-    async fn record_cost(&self, key_name: &str, model: &str, prompt: u32, completion: u32) {
-        let micros = self.cost_micros(model, prompt, completion);
+    async fn record_cost(
+        &self,
+        key_name: &str,
+        model: &str,
+        provider: &str,
+        prompt: u32,
+        completion: u32,
+    ) {
+        let micros = self.cost_micros(model, provider, prompt, completion);
         if micros > 0 {
             let key = storage_key(&Self::PREFIX, key_name.as_bytes());
             let _ = self.storage.increment(&key, micros).await;
@@ -142,12 +159,19 @@ impl crabllm_core::Extension for Budget {
             .clone()
             .unwrap_or_else(|| "__global".to_string());
         let model = ctx.model.clone();
+        let provider = ctx.provider.clone();
         let usage = response.usage.clone();
 
         Box::pin(async move {
             if let Some(u) = usage {
-                self.record_cost(&key_name, &model, u.prompt_tokens, u.completion_tokens)
-                    .await;
+                self.record_cost(
+                    &key_name,
+                    &model,
+                    &provider,
+                    u.prompt_tokens,
+                    u.completion_tokens,
+                )
+                .await;
             }
         })
     }
@@ -158,12 +182,19 @@ impl crabllm_core::Extension for Budget {
             .clone()
             .unwrap_or_else(|| "__global".to_string());
         let model = ctx.model.clone();
+        let provider = ctx.provider.clone();
         let usage = chunk.usage.clone();
 
         Box::pin(async move {
             if let Some(u) = usage {
-                self.record_cost(&key_name, &model, u.prompt_tokens, u.completion_tokens)
-                    .await;
+                self.record_cost(
+                    &key_name,
+                    &model,
+                    &provider,
+                    u.prompt_tokens,
+                    u.completion_tokens,
+                )
+                .await;
             }
         })
     }
