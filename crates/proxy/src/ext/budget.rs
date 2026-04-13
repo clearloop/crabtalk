@@ -1,14 +1,14 @@
 use axum::{Json, Router, routing::get};
 use crabllm_core::{
     BoxFuture, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, ExtensionError,
-    Prefix, PricingConfig, RequestContext, Storage, cost, storage_key,
+    ModelInfo, Prefix, RequestContext, Storage, resolve_model_info, storage_key,
 };
 use serde::Serialize;
 use std::{collections::HashMap, sync::Arc};
 
 pub struct Budget {
     storage: Arc<dyn Storage>,
-    pricing: HashMap<String, PricingConfig>,
+    models: HashMap<String, ModelInfo>,
     default_budget_micros: i64,
     key_budgets: HashMap<String, i64>,
 }
@@ -19,7 +19,7 @@ impl Budget {
     pub fn new(
         config: &serde_json::Value,
         storage: Arc<dyn Storage>,
-        pricing: HashMap<String, PricingConfig>,
+        models: HashMap<String, ModelInfo>,
     ) -> Result<Self, String> {
         let default_budget = config
             .get("default_budget")
@@ -47,7 +47,7 @@ impl Budget {
 
         Ok(Self {
             storage,
-            pricing,
+            models,
             default_budget_micros,
             key_budgets,
         })
@@ -61,10 +61,10 @@ impl Budget {
     }
 
     fn cost_micros(&self, model: &str, prompt_tokens: u32, completion_tokens: u32) -> i64 {
-        let Some(pricing) = self.pricing.get(model) else {
+        let Some(info) = resolve_model_info(model, &self.models) else {
             return 0;
         };
-        (cost(pricing, prompt_tokens, completion_tokens) * 1_000_000.0) as i64
+        (info.cost(prompt_tokens, completion_tokens) * 1_000_000.0).round() as i64
     }
 
     pub fn admin_routes(&self) -> Router {

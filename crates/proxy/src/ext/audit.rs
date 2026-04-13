@@ -7,7 +7,7 @@ use axum::{
 };
 use crabllm_core::{
     ApiError, BoxFuture, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Error,
-    Prefix, RequestContext, Storage, cost, storage_key,
+    ModelInfo, Prefix, RequestContext, Storage, resolve_model_info, storage_key,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, sync::Arc, time::SystemTime};
@@ -16,16 +16,16 @@ const PREFIX: Prefix = *b"alog";
 
 pub struct AuditLogger {
     storage: Arc<dyn Storage>,
-    pricing: HashMap<String, crabllm_core::PricingConfig>,
+    models: HashMap<String, ModelInfo>,
 }
 
 impl AuditLogger {
     pub fn new(
         _config: &serde_json::Value,
         storage: Arc<dyn Storage>,
-        pricing: HashMap<String, crabllm_core::PricingConfig>,
+        models: HashMap<String, ModelInfo>,
     ) -> Result<Self, String> {
-        Ok(Self { storage, pricing })
+        Ok(Self { storage, models })
     }
 
     pub fn admin_routes(&self) -> Router {
@@ -35,9 +35,8 @@ impl AuditLogger {
     }
 
     fn cost_micros(&self, model: &str, prompt: u32, completion: u32) -> i64 {
-        self.pricing
-            .get(model)
-            .map(|p| (cost(p, prompt, completion) * 1_000_000.0).round() as i64)
+        resolve_model_info(model, &self.models)
+            .map(|info| (info.cost(prompt, completion) * 1_000_000.0).round() as i64)
             .unwrap_or(0)
     }
 

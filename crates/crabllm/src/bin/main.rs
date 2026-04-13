@@ -389,7 +389,7 @@ fn build_extensions(
                 extensions.push(Box::new(ext));
             }
             "budget" => {
-                let ext = Budget::new(value, storage.clone(), config.pricing.clone())?;
+                let ext = Budget::new(value, storage.clone(), config.models.clone())?;
                 admin_routes.push(ext.admin_routes());
                 extensions.push(Box::new(ext));
             }
@@ -399,7 +399,7 @@ fn build_extensions(
                 has_logging = true;
             }
             "audit" => {
-                let ext = AuditLogger::new(value, storage.clone(), config.pricing.clone())?;
+                let ext = AuditLogger::new(value, storage.clone(), config.models.clone())?;
                 admin_routes.push(ext.admin_routes());
                 extensions.push(Box::new(ext));
             }

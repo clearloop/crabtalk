@@ -10,13 +10,6 @@ pub struct PricingConfig {
     pub completion_cost_per_million: f64,
 }
 
-/// Compute the cost in USD for a given number of prompt and completion tokens.
-pub fn cost(pricing: &PricingConfig, prompt_tokens: u32, completion_tokens: u32) -> f64 {
-    (prompt_tokens as f64 * pricing.prompt_cost_per_million
-        + completion_tokens as f64 * pricing.completion_cost_per_million)
-        / 1_000_000.0
-}
-
 /// Top-level gateway configuration, loaded from TOML.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatewayConfig {
@@ -37,9 +30,10 @@ pub struct GatewayConfig {
     /// Model name aliases. Maps friendly names to canonical model names.
     #[serde(default)]
     pub aliases: HashMap<String, String>,
-    /// Per-model token pricing for cost tracking and budget enforcement.
+    /// Per-model metadata overrides (context window, pricing). Merged with
+    /// built-in defaults at lookup time — only specify what you want to override.
     #[serde(default)]
-    pub pricing: HashMap<String, PricingConfig>,
+    pub models: HashMap<String, crate::ModelInfo>,
     /// Admin API bearer token. If set, enables /v1/admin/* endpoints.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admin_token: Option<String>,
