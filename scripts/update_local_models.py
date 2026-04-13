@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
 """Fetch mlx-community models from HuggingFace and generate local.toml.
 
+Only includes models whose architecture (model_type in config.json) is
+supported by mlx-swift-lm. The supported types are extracted from the
+Swift factory source files at build time.
+
 Requires: pip install huggingface_hub
 """
+
+import re
+from pathlib import Path
 
 from huggingface_hub import list_models
 
@@ -11,6 +18,29 @@ ORG = "mlx-community"
 
 # Only include quantized MLX models (the ones you'd actually run locally).
 QUANT_SUFFIXES = ("-4bit", "-8bit", "-3bit", "-6bit")
+
+# Swift factory source files that register supported model_type strings.
+SWIFT_FACTORIES = [
+    "mlx/.build/checkouts/mlx-swift-lm/Libraries/MLXLLM/LLMModelFactory.swift",
+    "mlx/.build/checkouts/mlx-swift-lm/Libraries/MLXVLM/VLMModelFactory.swift",
+]
+
+
+def load_supported_model_types() -> set[str]:
+    """Extract supported model_type strings from mlx-swift-lm factory source."""
+    types: set[str] = set()
+    pattern = re.compile(r'"([^"]+)":\s*create\(')
+
+    for path in SWIFT_FACTORIES:
+        try:
+            text = Path(path).read_text()
+        except FileNotFoundError:
+            print(f"  warning: {path} not found, skipping")
+            continue
+        for m in pattern.finditer(text):
+            types.add(m.group(1))
+
+    return types
 
 
 def parse_model(repo_id: str) -> tuple[str, str, str] | None:
@@ -73,10 +103,26 @@ def get_size_mb(model) -> int | None:
     return max(1, int(total_bytes / (1024 * 1024)))
 
 
+def get_model_type(model) -> str | None:
+    """Extract model_type from HuggingFace model config."""
+    cfg = getattr(model, "config", None)
+    if not cfg:
+        return None
+    return cfg.get("model_type")
+
+
 def main():
+    supported = load_supported_model_types()
+    print(f"Supported model types ({len(supported)}): {', '.join(sorted(supported))}")
+
     print(f"Fetching models from {ORG} on HuggingFace ...")
     all_models = list(
-        list_models(author=ORG, sort="downloads", direction=-1, expand=["safetensors"])
+        list_models(
+            author=ORG,
+            sort="downloads",
+            direction=-1,
+            expand=["config", "safetensors"],
+        )
     )
     print(f"  Found {len(all_models)} total repos")
 
@@ -85,10 +131,16 @@ def main():
     seen: set[tuple[str, str, str]] = set()
     entries: list[tuple[str, str, str, str, int | None]] = []
     skipped = 0
+    unsupported = 0
     dupes = 0
     for m in all_models:
         repo_id = m.id
         if not repo_id.lower().endswith(QUANT_SUFFIXES):
+            continue
+        # Filter by supported architecture.
+        model_type = get_model_type(m)
+        if model_type and model_type not in supported:
+            unsupported += 1
             continue
         parsed = parse_model(repo_id)
         if not parsed:
@@ -132,7 +184,10 @@ def main():
     with open(OUTPUT, "w") as f:
         f.write("\n".join(lines))
 
-    print(f"Wrote {len(entries)} models to {OUTPUT} ({skipped} skipped, {dupes} dupes)")
+    print(
+        f"Wrote {len(entries)} models to {OUTPUT} "
+        f"({unsupported} unsupported arch, {skipped} skipped, {dupes} dupes)"
+    )
 
 
 if __name__ == "__main__":

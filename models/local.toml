@@ -14,10 +14,6 @@ size_mb = 4401
 repo_id = "mlx-community/ABEJA-Qwen3-14B-Agentic-256k-v0.1-MLX-8bit"
 size_mb = 7922
 
-[models.ai21-jamba-reasoning.3b.4bit]
-repo_id = "mlx-community/AI21-Jamba-Reasoning-3B-4bit"
-size_mb = 942
-
 [models."arrowcanaria-llama-rl-v0.1".8b.4bit]
 repo_id = "mlx-community/ArrowCanaria-Llama-8B-RL-v0.1-MLX-4bit"
 size_mb = 2393
@@ -278,18 +274,6 @@ size_mb = 17577
 repo_id = "mlx-community/Deutscher-Pantheon-12B-4bit"
 size_mb = 3650
 
-[models.devstral-2-instruct-2512.123b.4bit]
-repo_id = "mlx-community/Devstral-2-123B-Instruct-2512-4bit"
-size_mb = 37264
-
-[models.devstral-2-instruct-2512.123b.6bit]
-repo_id = "mlx-community/Devstral-2-123B-Instruct-2512-6bit"
-size_mb = 52168
-
-[models.devstral-2-instruct-2512.123b.8bit]
-repo_id = "mlx-community/Devstral-2-123B-Instruct-2512-8bit"
-size_mb = 67072
-
 [models.dia."1.6b".3bit]
 repo_id = "mlx-community/Dia-1.6B-3bit"
 size_mb = 3073
@@ -301,18 +285,6 @@ size_mb = 3073
 [models.dia."1.6b".6bit]
 repo_id = "mlx-community/Dia-1.6B-6bit"
 size_mb = 3073
-
-[models.diffucoder-cpgrpo.7b.4bit]
-repo_id = "mlx-community/DiffuCoder-7B-cpGRPO-4bit"
-size_mb = 2270
-
-[models.diffucoder-cpgrpo.7b.6bit]
-repo_id = "mlx-community/DiffuCoder-7B-cpGRPO-6bit"
-size_mb = 3177
-
-[models.diffucoder-cpgrpo.7b.8bit]
-repo_id = "mlx-community/DiffuCoder-7B-cpGRPO-8bit"
-size_mb = 4085
 
 [models."dobby-mini-unhinged-plus-llama-3.1".8b.4bit]
 repo_id = "mlx-community/Dobby-Mini-Unhinged-Plus-Llama-3.1-8B-4bit"
@@ -390,37 +362,9 @@ size_mb = 91
 repo_id = "mlx-community/EmoLlama-3-8B-Instruct-1048k-8bit"
 size_mb = 4308
 
-[models."ernie-4.5-a3b-pt".21b.4bit]
-repo_id = "mlx-community/ERNIE-4.5-21B-A3B-PT-4bit"
-size_mb = 6504
-
-[models."ernie-4.5-a3b-pt".21b.6bit]
-repo_id = "mlx-community/ERNIE-4.5-21B-A3B-PT-6bit"
-size_mb = 9106
-
-[models."ernie-4.5-a3b-pt".21b.8bit]
-repo_id = "mlx-community/ERNIE-4.5-21B-A3B-PT-8bit"
-size_mb = 11708
-
-[models."ernie-4.5-a47b-pt".300b.4bit]
-repo_id = "mlx-community/ERNIE-4.5-300B-A47B-PT-4bit"
-size_mb = 89254
-
 [models."ernie-4.5-pt"."0.3b".4bit]
 repo_id = "mlx-community/ERNIE-4.5-0.3B-PT-4bit"
 size_mb = 107
-
-[models."ernie-4.5-vl-a3b-thinking".28b.4bit]
-repo_id = "mlx-community/ERNIE-4.5-VL-28B-A3B-Thinking-4bit"
-size_mb = 9776
-
-[models."ernie-4.5-vl-a3b-thinking".28b.6bit]
-repo_id = "mlx-community/ERNIE-4.5-VL-28B-A3B-Thinking-6bit"
-size_mb = 13206
-
-[models."ernie-4.5-vl-a3b-thinking".28b.8bit]
-repo_id = "mlx-community/ERNIE-4.5-VL-28B-A3B-Thinking-8bit"
-size_mb = 16635
 
 [models.eurollm-instruct-2512.22b.4bit]
 repo_id = "mlx-community/EuroLLM-22B-Instruct-2512-mlx-4bit"
@@ -438,101 +382,9 @@ size_mb = 12144
 repo_id = "mlx-community/EVA-Qwen2.5-72B-v0.0-8bit"
 size_mb = 39005
 
-[models."exaone-3.5-instruct"."2.4b".4bit]
-repo_id = "mlx-community/EXAONE-3.5-2.4B-Instruct-4bit"
-size_mb = 717
-
-[models."exaone-3.5-instruct"."2.4b".6bit]
-repo_id = "mlx-community/EXAONE-3.5-2.4B-Instruct-6bit"
-size_mb = 1003
-
-[models."exaone-3.5-instruct"."2.4b".8bit]
-repo_id = "mlx-community/EXAONE-3.5-2.4B-Instruct-8bit"
-size_mb = 1290
-
-[models."exaone-3.5-instruct".32b.3bit]
-repo_id = "mlx-community/EXAONE-3.5-32B-Instruct-3bit"
-size_mb = 7631
-
-[models."exaone-3.5-instruct".32b.4bit]
-repo_id = "mlx-community/EXAONE-3.5-32B-Instruct-4bit"
-size_mb = 9538
-
-[models."exaone-3.5-instruct".32b.6bit]
-repo_id = "mlx-community/EXAONE-3.5-32B-Instruct-6bit"
-size_mb = 13353
-
-[models."exaone-3.5-instruct".32b.8bit]
-repo_id = "mlx-community/EXAONE-3.5-32B-Instruct-8bit"
-size_mb = 17168
-
-[models."exaone-3.5-instruct"."7.8b".3bit]
-repo_id = "mlx-community/EXAONE-3.5-7.8B-Instruct-3bit"
-size_mb = 1864
-
-[models."exaone-3.5-instruct"."7.8b".4bit]
-repo_id = "mlx-community/EXAONE-3.5-7.8B-Instruct-4bit"
-size_mb = 2330
-
-[models."exaone-3.5-instruct"."7.8b".6bit]
-repo_id = "mlx-community/EXAONE-3.5-7.8B-Instruct-6bit"
-size_mb = 3262
-
-[models."exaone-3.5-instruct"."7.8b".8bit]
-repo_id = "mlx-community/EXAONE-3.5-7.8B-Instruct-8bit"
-size_mb = 4194
-
 [models."exaone-4.0".32b.4bit]
 repo_id = "mlx-community/EXAONE-4.0-32B-4bit"
 size_mb = 9538
-
-[models.exaone-deep."2.4b".3bit]
-repo_id = "mlx-community/EXAONE-Deep-2.4B-3bit"
-size_mb = 573
-
-[models.exaone-deep."2.4b".4bit]
-repo_id = "mlx-community/EXAONE-Deep-2.4B-4bit"
-size_mb = 717
-
-[models.exaone-deep."2.4b".6bit]
-repo_id = "mlx-community/EXAONE-Deep-2.4B-6bit"
-size_mb = 1003
-
-[models.exaone-deep."2.4b".8bit]
-repo_id = "mlx-community/EXAONE-Deep-2.4B-8bit"
-size_mb = 1290
-
-[models.exaone-deep.32b.3bit]
-repo_id = "mlx-community/EXAONE-Deep-32B-3bit"
-size_mb = 7631
-
-[models.exaone-deep.32b.4bit]
-repo_id = "mlx-community/EXAONE-Deep-32B-4bit"
-size_mb = 9538
-
-[models.exaone-deep.32b.6bit]
-repo_id = "mlx-community/EXAONE-Deep-32B-6bit"
-size_mb = 13353
-
-[models.exaone-deep.32b.8bit]
-repo_id = "mlx-community/EXAONE-Deep-32B-mlx-8Bit"
-size_mb = 17168
-
-[models.exaone-deep."7.8b".3bit]
-repo_id = "mlx-community/EXAONE-Deep-7.8B-3bit"
-size_mb = 1864
-
-[models.exaone-deep."7.8b".4bit]
-repo_id = "mlx-community/EXAONE-Deep-7.8B-4bit"
-size_mb = 2330
-
-[models.exaone-deep."7.8b".6bit]
-repo_id = "mlx-community/EXAONE-Deep-7.8B-6bit"
-size_mb = 3262
-
-[models.exaone-deep."7.8b".8bit]
-repo_id = "mlx-community/EXAONE-Deep-7.8B-8bit"
-size_mb = 4194
 
 [models.falcon-e-instruct.1b.4bit]
 repo_id = "mlx-community/Falcon-E-1B-Instruct-4bit"
@@ -966,58 +818,6 @@ size_mb = 4958
 repo_id = "mlx-community/Gemma-3-Glitter-12B-8bit"
 size_mb = 6312
 
-[models.gemma-4.31b.4bit]
-repo_id = "mlx-community/gemma-4-31b-4bit"
-size_mb = 10238
-
-[models.gemma-4.31b.6bit]
-repo_id = "mlx-community/gemma-4-31b-6bit"
-size_mb = 13898
-
-[models.gemma-4.31b.8bit]
-repo_id = "mlx-community/gemma-4-31b-8bit"
-size_mb = 17558
-
-[models.gemma-4-a4b.26b.4bit]
-repo_id = "mlx-community/gemma-4-26b-a4b-4bit"
-size_mb = 8738
-
-[models.gemma-4-a4b.26b.6bit]
-repo_id = "mlx-community/gemma-4-26b-a4b-6bit"
-size_mb = 11681
-
-[models.gemma-4-a4b.26b.8bit]
-repo_id = "mlx-community/gemma-4-26b-a4b-8bit"
-size_mb = 14625
-
-[models.gemma-4-a4b-it.26b.4bit]
-repo_id = "mlx-community/gemma-4-26b-a4b-it-4bit"
-size_mb = 8738
-
-[models.gemma-4-a4b-it.26b.6bit]
-repo_id = "mlx-community/gemma-4-26b-a4b-it-6bit"
-size_mb = 11681
-
-[models.gemma-4-a4b-it.26b.8bit]
-repo_id = "mlx-community/gemma-4-26b-a4b-it-8bit"
-size_mb = 14625
-
-[models.gemma-4-a4b-it-heretic.26b.4bit]
-repo_id = "mlx-community/gemma-4-26B-A4B-it-heretic-4bit"
-size_mb = 8738
-
-[models.gemma-4-it.31b.4bit]
-repo_id = "mlx-community/gemma-4-31b-it-4bit"
-size_mb = 10238
-
-[models.gemma-4-it.31b.6bit]
-repo_id = "mlx-community/gemma-4-31b-it-6bit"
-size_mb = 13898
-
-[models.gemma-4-it.31b.8bit]
-repo_id = "mlx-community/gemma-4-31b-it-8bit"
-size_mb = 17558
-
 [models.gemma-sea-lion-v3-it.9b.4bit]
 repo_id = "mlx-community/Gemma-SEA-LION-v3-9B-IT-mlx-4bit"
 size_mb = 3306
@@ -1114,45 +914,9 @@ size_mb = 147
 repo_id = "mlx-community/Granite-4.0-350m-gabliterated-8bit"
 size_mb = 189
 
-[models."granite-4.0-speech".1b.4bit]
-repo_id = "mlx-community/granite-4.0-1b-speech-4bit"
-size_mb = 1455
-
-[models."granite-4.0-speech".1b.6bit]
-repo_id = "mlx-community/granite-4.0-1b-speech-6bit"
-size_mb = 1674
-
-[models."granite-4.0-speech".1b.8bit]
-repo_id = "mlx-community/granite-4.0-1b-speech-8bit"
-size_mb = 1893
-
-[models."granite-4.0-vision".3b.4bit]
-repo_id = "mlx-community/granite-4.0-3b-vision-4bit"
-size_mb = 1958
-
-[models."granite-4.0-vision".3b.6bit]
-repo_id = "mlx-community/granite-4.0-3b-vision-6bit"
-size_mb = 2414
-
-[models."granite-4.0-vision".3b.8bit]
-repo_id = "mlx-community/granite-4.0-3b-vision-8bit"
-size_mb = 2870
-
 [models.granite-code-base.8b.8bit]
 repo_id = "mlx-community/granite-8b-code-base-8bit"
 size_mb = 2403
-
-[models."granite-vision-3.2".2b.4bit]
-repo_id = "mlx-community/granite-vision-3.2-2b-4bit"
-size_mb = 1606
-
-[models."granite-vision-3.2".2b.6bit]
-repo_id = "mlx-community/granite-vision-3.2-2b-6bit"
-size_mb = 1921
-
-[models."granite-vision-3.2".2b.8bit]
-repo_id = "mlx-community/granite-vision-3.2-2b-8bit"
-size_mb = 2237
 
 [models.gui-owl.7b.6bit]
 repo_id = "mlx-community/GUI-Owl-7B-6bit"
@@ -1334,74 +1098,6 @@ size_mb = 1891
 repo_id = "mlx-community/Huihui-Qwen3.5-4B-Claude-4.6-Opus-abliterated-6bit"
 size_mb = 2392
 
-[models.hunyuan-instruct."0.5b".8bit]
-repo_id = "mlx-community/Hunyuan-0.5B-Instruct-8bit"
-size_mb = 289
-
-[models.hunyuan-instruct."1.8b".4bit]
-repo_id = "mlx-community/Hunyuan-1.8B-Instruct-4bit"
-size_mb = 534
-
-[models.hunyuan-instruct."1.8b".8bit]
-repo_id = "mlx-community/Hunyuan-1.8B-Instruct-8bit"
-size_mb = 961
-
-[models.hunyuan-instruct.4b.4bit]
-repo_id = "mlx-community/Hunyuan-4B-Instruct-4bit"
-size_mb = 1258
-
-[models.hunyuan-instruct.4b.8bit]
-repo_id = "mlx-community/Hunyuan-4B-Instruct-8bit"
-size_mb = 2265
-
-[models.hunyuan-instruct.7b.3bit]
-repo_id = "mlx-community/Hunyuan-7B-Instruct-3bit"
-size_mb = 1790
-
-[models.hunyuan-instruct.7b.4bit]
-repo_id = "mlx-community/Hunyuan-7B-Instruct-4bit"
-size_mb = 2238
-
-[models.hunyuan-instruct.7b.6bit]
-repo_id = "mlx-community/Hunyuan-7B-Instruct-6bit"
-size_mb = 3133
-
-[models.hunyuan-instruct.7b.8bit]
-repo_id = "mlx-community/Hunyuan-7B-Instruct-8bit"
-size_mb = 4028
-
-[models.hunyuan-instruct-2508.7b.4bit]
-repo_id = "mlx-community/Hunyuan-7B-Instruct-2508-4bit"
-size_mb = 2236
-
-[models.hunyuan-instruct-2508.7b.8bit]
-repo_id = "mlx-community/Hunyuan-7B-Instruct-2508-8bit"
-size_mb = 4026
-
-[models."hy-mt1.5"."1.8b".4bit]
-repo_id = "mlx-community/HY-MT1.5-1.8B-4bit"
-size_mb = 534
-
-[models."hy-mt1.5"."1.8b".6bit]
-repo_id = "mlx-community/HY-MT1.5-1.8B-6bit"
-size_mb = 747
-
-[models."hy-mt1.5"."1.8b".8bit]
-repo_id = "mlx-community/HY-MT1.5-1.8B-8bit"
-size_mb = 961
-
-[models."hy-mt1.5".7b.4bit]
-repo_id = "mlx-community/HY-MT1.5-7B-4bit"
-size_mb = 2236
-
-[models."hy-mt1.5".7b.6bit]
-repo_id = "mlx-community/HY-MT1.5-7B-6bit"
-size_mb = 3131
-
-[models."hy-mt1.5".7b.8bit]
-repo_id = "mlx-community/HY-MT1.5-7B-8bit"
-size_mb = 4026
-
 [models."ibm-granite-3.2-instruct".2b.4bit]
 repo_id = "mlx-community/IBM-granite-3.2-2b-instruct-4bit"
 size_mb = 755
@@ -1429,102 +1125,6 @@ size_mb = 2441
 [models.ii-medical.8b.8bit]
 repo_id = "mlx-community/II-Medical-8B-8bit"
 size_mb = 4394
-
-[models.internvl2_5.1b.4bit]
-repo_id = "mlx-community/InternVL2_5-1B-4bit"
-size_mb = 768
-
-[models.internvl3.1b.4bit]
-repo_id = "mlx-community/InternVL3-1B-4bit"
-size_mb = 768
-
-[models.internvl3.2b.4bit]
-repo_id = "mlx-community/InternVL3-2B-4bit"
-size_mb = 1112
-
-[models.internvl3.8b.3bit]
-repo_id = "mlx-community/InternVL3-8B-3bit"
-size_mb = 2402
-
-[models.internvl3.8b.4bit]
-repo_id = "mlx-community/InternVL3-8B-MLX-4bit"
-size_mb = 2857
-
-[models.internvl3.9b.4bit]
-repo_id = "mlx-community/InternVL3-9B-4bit"
-size_mb = 2857
-
-[models.internvl3_5.1b.4bit]
-repo_id = "mlx-community/InternVL3_5-1B-4bit"
-size_mb = 850
-
-[models.iquest-coder-v1-base.14b.8bit]
-repo_id = "mlx-community/IQuest-Coder-V1-14B-Base-8bit"
-size_mb = 7746
-
-[models.iquest-coder-v1-base.7b.8bit]
-repo_id = "mlx-community/IQuest-Coder-V1-7B-Base-8bit"
-size_mb = 4084
-
-[models.iquest-coder-v1-base-stage1.14b.8bit]
-repo_id = "mlx-community/IQuest-Coder-V1-14B-Base-Stage1-8bit"
-size_mb = 7743
-
-[models.iquest-coder-v1-base-stage1.7b.8bit]
-repo_id = "mlx-community/IQuest-Coder-V1-7B-Base-Stage1-8bit"
-size_mb = 4079
-
-[models.iquest-coder-v1-instruct.14b.8bit]
-repo_id = "mlx-community/IQuest-Coder-V1-14B-Instruct-8bit"
-size_mb = 7746
-
-[models.iquest-coder-v1-instruct.40b.4bit]
-repo_id = "mlx-community/IQuest-Coder-V1-40B-Instruct-4bit"
-size_mb = 11860
-
-[models.iquest-coder-v1-instruct.40b.6bit]
-repo_id = "mlx-community/IQuest-Coder-V1-40B-Instruct-6bit"
-size_mb = 16604
-
-[models.iquest-coder-v1-instruct.40b.8bit]
-repo_id = "mlx-community/IQuest-Coder-V1-40B-Instruct-8bit"
-size_mb = 21348
-
-[models.iquest-coder-v1-instruct.7b.8bit]
-repo_id = "mlx-community/IQuest-Coder-V1-7B-Instruct-8bit"
-size_mb = 4084
-
-[models.iquest-coder-v1-loop-instruct.40b.4bit]
-repo_id = "mlx-community/IQuest-Coder-V1-40B-Loop-Instruct-4bit"
-size_mb = 11861
-
-[models.iquest-coder-v1-loop-instruct.40b.6bit]
-repo_id = "mlx-community/IQuest-Coder-V1-40B-Loop-Instruct-6bit"
-size_mb = 16605
-
-[models.iquest-coder-v1-loop-instruct.40b.8bit]
-repo_id = "mlx-community/IQuest-Coder-V1-40B-Loop-Instruct-8bit"
-size_mb = 21349
-
-[models.iquest-coder-v1-thinking.14b.8bit]
-repo_id = "mlx-community/IQuest-Coder-V1-14B-Thinking-8bit"
-size_mb = 7746
-
-[models.iquest-coder-v1-thinking.40b.8bit]
-repo_id = "mlx-community/IQuest-Coder-V1-40B-Thinking-8bit"
-size_mb = 21348
-
-[models.iquest-coder-v1-thinking.7b.8bit]
-repo_id = "mlx-community/IQuest-Coder-V1-7B-Thinking-8bit"
-size_mb = 4084
-
-[models.irodori-tts.500m.4bit]
-repo_id = "mlx-community/Irodori-TTS-500M-4bit"
-size_mb = 269
-
-[models.irodori-tts.500m.8bit]
-repo_id = "mlx-community/Irodori-TTS-500M-8bit"
-size_mb = 369
 
 [models.jan-v1.4b.4bit]
 repo_id = "mlx-community/Jan-v1-4B-4bit"
@@ -1866,14 +1466,6 @@ size_mb = 404
 repo_id = "mlx-community/JOSIEv4o-8b-stage1-beta-4bit"
 size_mb = 2393
 
-[models.k-exaone-a23b.236b.6bit]
-repo_id = "mlx-community/K-EXAONE-236B-A23B-6bit"
-size_mb = 98761
-
-[models.k-exaone-a23b.236b.8bit]
-repo_id = "mlx-community/K-EXAONE-236B-A23B-8bit"
-size_mb = 126958
-
 [models.karakuri-vl-2-thinking-2603.8b.4bit]
 repo_id = "mlx-community/karakuri-vl-2-8b-thinking-2603-MLX-4bit"
 size_mb = 3540
@@ -1893,26 +1485,6 @@ size_mb = 30338
 [models.kimi-dev.72b.8bit]
 repo_id = "mlx-community/Kimi-Dev-72B-8bit"
 size_mb = 39005
-
-[models.kimi-linear-a3b-instruct.48b.3bit]
-repo_id = "mlx-community/Kimi-Linear-48B-A3B-Instruct-3bit"
-size_mb = 11718
-
-[models.kimi-linear-a3b-instruct.48b.4bit]
-repo_id = "mlx-community/Kimi-Linear-48B-A3B-Instruct-4bit"
-size_mb = 14645
-
-[models.kimi-linear-a3b-instruct.48b.6bit]
-repo_id = "mlx-community/Kimi-Linear-48B-A3B-Instruct-6bit"
-size_mb = 20499
-
-[models.kimi-linear-a3b-instruct.48b.8bit]
-repo_id = "mlx-community/Kimi-Linear-48B-A3B-Instruct-8bit"
-size_mb = 26353
-
-[models."klear-a2.5b-instruct".46b.3bit]
-repo_id = "mlx-community/Klear-46B-A2.5B-Instruct-3bit"
-size_mb = 11018
 
 [models.kumru.2b.4bit]
 repo_id = "mlx-community/Kumru-2B-4bit"
@@ -2066,18 +1638,6 @@ size_mb = 147
 repo_id = "mlx-community/LFM2.5-350M-8bit"
 size_mb = 147
 
-[models."lfm2.5-audio"."1.5b".4bit]
-repo_id = "mlx-community/LFM2.5-Audio-1.5B-4bit"
-size_mb = 730
-
-[models."lfm2.5-audio"."1.5b".6bit]
-repo_id = "mlx-community/LFM2.5-Audio-1.5B-6bit"
-size_mb = 884
-
-[models."lfm2.5-audio"."1.5b".8bit]
-repo_id = "mlx-community/LFM2.5-Audio-1.5B-8bit"
-size_mb = 1037
-
 [models."lfm2.5-base"."1.2b".4bit]
 repo_id = "mlx-community/LFM2.5-1.2B-Base-4bit"
 size_mb = 348
@@ -2165,14 +1725,6 @@ size_mb = 1092
 [models.lingshu.7b.4bit]
 repo_id = "mlx-community/Lingshu-7B-4bit"
 size_mb = 2700
-
-[models.llada-instruct.8b.4bit]
-repo_id = "mlx-community/LLaDA-8B-Instruct-mlx-4bit"
-size_mb = 2389
-
-[models.llada-instruct.8b.8bit]
-repo_id = "mlx-community/LLaDA-8B-Instruct-mlx-8bit"
-size_mb = 4300
 
 [models.llama-3-16k.8b.4bit]
 repo_id = "mlx-community/Llama-3-8B-16K-4bit"
@@ -2434,18 +1986,6 @@ size_mb = 1340
 repo_id = "mlx-community/Llama-3.2-3B-Instruct-uncensored-6bit"
 size_mb = 1340
 
-[models."llama-3.2-vision-instruct".11b.4bit]
-repo_id = "mlx-community/Llama-3.2-11B-Vision-Instruct-4bit"
-size_mb = 3185
-
-[models."llama-3.2-vision-instruct".11b.8bit]
-repo_id = "mlx-community/Llama-3.2-11B-Vision-Instruct-8bit"
-size_mb = 5728
-
-[models."llama-3.2-vision-instruct".90b.4bit]
-repo_id = "mlx-community/Llama-3.2-90B-Vision-Instruct-4bit"
-size_mb = 26410
-
 [models."llama-3.3-instruct".70b.3bit]
 repo_id = "mlx-community/Llama-3.3-70B-Instruct-3bit"
 size_mb = 16823
@@ -2469,26 +2009,6 @@ size_mb = 21028
 [models."llama-3.3-swallow-instruct-v0.4".70b.8bit]
 repo_id = "mlx-community/Llama-3.3-Swallow-70B-Instruct-v0.4-8bit"
 size_mb = 37849
-
-[models.llama-3_3-nemotron-super-v1.49b.4bit]
-repo_id = "mlx-community/Llama-3_3-Nemotron-Super-49B-v1-mlx-4bit"
-size_mb = 14863
-
-[models.llama-3_3-nemotron-super-v1.49b.6bit]
-repo_id = "mlx-community/Llama-3_3-Nemotron-Super-49B-v1-mlx-6bit"
-size_mb = 20807
-
-[models.llama-3_3-nemotron-super-v1_5.49b.4bit]
-repo_id = "mlx-community/Llama-3_3-Nemotron-Super-49B-v1_5-mlx-4Bit"
-size_mb = 14863
-
-[models.llama-4-maverick-16e-instruct.17b.4bit]
-repo_id = "mlx-community/Llama-4-Maverick-17B-16E-Instruct-4bit"
-size_mb = 119422
-
-[models.llama-4-maverick-16e-instruct.17b.6bit]
-repo_id = "mlx-community/Llama-4-Maverick-17B-16E-Instruct-6bit"
-size_mb = 167190
 
 [models."llama-outetts-1.0".1b.3bit]
 repo_id = "mlx-community/Llama-OuteTTS-1.0-1B-3bit"
@@ -2541,30 +2061,6 @@ size_mb = 2560
 [models.llm-jp-4-thinking.8b.8bit]
 repo_id = "mlx-community/llm-jp-4-8b-thinking-8bit"
 size_mb = 4608
-
-[models.longcat-audiodit.1b.4bit]
-repo_id = "mlx-community/LongCat-AudioDiT-1B-4bit"
-size_mb = 1050
-
-[models.longcat-audiodit.1b.6bit]
-repo_id = "mlx-community/LongCat-AudioDiT-1B-6bit"
-size_mb = 1201
-
-[models.longcat-audiodit.1b.8bit]
-repo_id = "mlx-community/LongCat-AudioDiT-1B-8bit"
-size_mb = 1351
-
-[models.longcat-audiodit."3.5b".4bit]
-repo_id = "mlx-community/LongCat-AudioDiT-3.5B-4bit"
-size_mb = 1917
-
-[models.longcat-audiodit."3.5b".6bit]
-repo_id = "mlx-community/LongCat-AudioDiT-3.5B-6bit"
-size_mb = 2356
-
-[models.longcat-audiodit."3.5b".8bit]
-repo_id = "mlx-community/LongCat-AudioDiT-3.5B-8bit"
-size_mb = 2794
 
 [models."longwriter-llama3.1".8b.6bit]
 repo_id = "mlx-community/LongWriter-llama3.1-8b-6bit"
@@ -2722,14 +2218,6 @@ size_mb = 217722
 repo_id = "mlx-community/Meta-Llama-3.1-70B-Instruct-4bit"
 size_mb = 21028
 
-[models.ming-omni-tts."0.5b".4bit]
-repo_id = "mlx-community/Ming-omni-tts-0.5B-4bit"
-size_mb = 442
-
-[models.ming-omni-tts-a3b."16.8b".4bit]
-repo_id = "mlx-community/Ming-omni-tts-16.8B-A3B-4bit"
-size_mb = 5334
-
 [models.ministral-instruct-2410.8b.4bit]
 repo_id = "mlx-community/Ministral-8B-Instruct-2410-4bit"
 size_mb = 2390
@@ -2761,30 +2249,6 @@ size_mb = 9835
 [models.mn-mag-mell-r1.12b.6bit]
 repo_id = "mlx-community/MN-12B-Mag-Mell-R1-6bit"
 size_mb = 5110
-
-[models.molmo2.8b.4bit]
-repo_id = "mlx-community/Molmo2-8B-4bit"
-size_mb = 4341
-
-[models.molmo2.8b.6bit]
-repo_id = "mlx-community/Molmo2-8B-6bit"
-size_mb = 5243
-
-[models.molmo2.8b.8bit]
-repo_id = "mlx-community/Molmo2-8B-8bit"
-size_mb = 6145
-
-[models.molmopoint.8b.4bit]
-repo_id = "mlx-community/MolmoPoint-8B-4bit"
-size_mb = 5207
-
-[models.molmopoint.8b.6bit]
-repo_id = "mlx-community/MolmoPoint-8B-6bit"
-size_mb = 6047
-
-[models.molmopoint.8b.8bit]
-repo_id = "mlx-community/MolmoPoint-8B-8bit"
-size_mb = 6887
 
 [models.mxlewd-l2.20b.4bit]
 repo_id = "mlx-community/MXLewd-L2-20B-4bit"
@@ -2922,26 +2386,6 @@ size_mb = 126115
 repo_id = "mlx-community/Qwen3-4B-ARC-MLX-4bit"
 size_mb = 1083
 
-[models.qwen3-asr."0.6b".4bit]
-repo_id = "mlx-community/Qwen3-ASR-0.6B-4bit"
-size_mb = 533
-
-[models.qwen3-asr."0.6b".6bit]
-repo_id = "mlx-community/Qwen3-ASR-0.6B-6bit"
-size_mb = 604
-
-[models.qwen3-asr."0.6b".8bit]
-repo_id = "mlx-community/Qwen3-ASR-0.6B-8bit"
-size_mb = 675
-
-[models.qwen3-asr."1.7b".4bit]
-repo_id = "mlx-community/Qwen3-ASR-1.7B-4bit"
-size_mb = 1118
-
-[models.qwen3-asr."1.7b".6bit]
-repo_id = "mlx-community/Qwen3-ASR-1.7B-6bit"
-size_mb = 1323
-
 [models.qwen3-base."0.6b".4bit]
 repo_id = "mlx-community/Qwen3-0.6B-Base-4bit"
 size_mb = 177
@@ -2953,18 +2397,6 @@ size_mb = 319
 [models.qwen3-coder-a35b-instruct.480b.4bit]
 repo_id = "mlx-community/Qwen3-Coder-480B-A35B-Instruct-4bit"
 size_mb = 143098
-
-[models.qwen3-forcedaligner."0.6b".4bit]
-repo_id = "mlx-community/Qwen3-ForcedAligner-0.6B-4bit"
-size_mb = 782
-
-[models.qwen3-forcedaligner."0.6b".6bit]
-repo_id = "mlx-community/Qwen3-ForcedAligner-0.6B-6bit"
-size_mb = 854
-
-[models.qwen3-forcedaligner."0.6b".8bit]
-repo_id = "mlx-community/Qwen3-ForcedAligner-0.6B-8bit"
-size_mb = 926
 
 [models.qwen3-gabliterated."0.6b".4bit]
 repo_id = "mlx-community/Qwen3-0.6B-gabliterated-4bit"
@@ -3001,18 +2433,6 @@ size_mb = 4401
 [models."qwen3-ja-fin-thinking-v0.1".14b.8bit]
 repo_id = "mlx-community/Qwen3-14B-Ja-Fin-Thinking-v0.1-MLX-8bit"
 size_mb = 7922
-
-[models.qwen3-omni-a3b-instruct.30b.4bit]
-repo_id = "mlx-community/Qwen3-Omni-30B-A3B-Instruct-4bit"
-size_mb = 12737
-
-[models.qwen3-omni-a3b-instruct.30b.6bit]
-repo_id = "mlx-community/Qwen3-Omni-30B-A3B-Instruct-6bit"
-size_mb = 16775
-
-[models.qwen3-omni-a3b-instruct.30b.8bit]
-repo_id = "mlx-community/Qwen3-Omni-30B-A3B-Instruct-8bit"
-size_mb = 20813
 
 [models.qwen3-sky-high-hermes.4b.4bit]
 repo_id = "mlx-community/Qwen3-4B-Sky-High-Hermes-4bit"
@@ -3057,66 +2477,6 @@ size_mb = 1199
 [models.qwen3-thinking-2507-heretic.4b.8bit]
 repo_id = "mlx-community/Qwen3-4B-Thinking-2507-heretic-8bit"
 size_mb = 2158
-
-[models.qwen3-tts-12hz-base."0.6b".4bit]
-repo_id = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-4bit"
-size_mb = 843
-
-[models.qwen3-tts-12hz-base."0.6b".6bit]
-repo_id = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-6bit"
-size_mb = 910
-
-[models.qwen3-tts-12hz-base."0.6b".8bit]
-repo_id = "mlx-community/Qwen3-TTS-12Hz-0.6B-Base-8bit"
-size_mb = 976
-
-[models.qwen3-tts-12hz-base."1.7b".4bit]
-repo_id = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-4bit"
-size_mb = 1206
-
-[models.qwen3-tts-12hz-base."1.7b".6bit]
-repo_id = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-6bit"
-size_mb = 1389
-
-[models.qwen3-tts-12hz-base."1.7b".8bit]
-repo_id = "mlx-community/Qwen3-TTS-12Hz-1.7B-Base-8bit"
-size_mb = 1572
-
-[models.qwen3-tts-12hz-customvoice."0.6b".4bit]
-repo_id = "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-4bit"
-size_mb = 826
-
-[models.qwen3-tts-12hz-customvoice."0.6b".6bit]
-repo_id = "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-6bit"
-size_mb = 893
-
-[models.qwen3-tts-12hz-customvoice."0.6b".8bit]
-repo_id = "mlx-community/Qwen3-TTS-12Hz-0.6B-CustomVoice-8bit"
-size_mb = 960
-
-[models.qwen3-tts-12hz-customvoice."1.7b".4bit]
-repo_id = "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-4bit"
-size_mb = 1183
-
-[models.qwen3-tts-12hz-customvoice."1.7b".6bit]
-repo_id = "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-6bit"
-size_mb = 1366
-
-[models.qwen3-tts-12hz-customvoice."1.7b".8bit]
-repo_id = "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-8bit"
-size_mb = 1549
-
-[models.qwen3-tts-12hz-voicedesign."1.7b".4bit]
-repo_id = "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-4bit"
-size_mb = 1183
-
-[models.qwen3-tts-12hz-voicedesign."1.7b".6bit]
-repo_id = "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-6bit"
-size_mb = 1366
-
-[models.qwen3-tts-12hz-voicedesign."1.7b".8bit]
-repo_id = "mlx-community/Qwen3-TTS-12Hz-1.7B-VoiceDesign-8bit"
-size_mb = 1549
 
 [models.qwen3-vl-embedding.2b.4bit]
 repo_id = "mlx-community/Qwen3-VL-Embedding-2B-4bit"
@@ -3362,53 +2722,9 @@ size_mb = 37849
 repo_id = "mlx-community/shisa-v2.1-unphi4-14b-mlx-8bit"
 size_mb = 7864
 
-[models.solar-open.100b.4bit]
-repo_id = "mlx-community/Solar-Open-100B-4bit"
-size_mb = 30633
-
-[models.solar-open.100b.6bit]
-repo_id = "mlx-community/Solar-Open-100B-6bit"
-size_mb = 42867
-
-[models.solar-open.100b.8bit]
-repo_id = "mlx-community/Solar-Open-100B-8bit"
-size_mb = 55101
-
-[models.soprano.80m.4bit]
-repo_id = "mlx-community/Soprano-80M-4bit"
-size_mb = 31
-
-[models.soprano.80m.6bit]
-repo_id = "mlx-community/Soprano-80M-6bit"
-size_mb = 42
-
-[models.soprano.80m.8bit]
-repo_id = "mlx-community/Soprano-80M-8bit"
-size_mb = 54
-
-[models."soprano-1.1".80m.6bit]
-repo_id = "mlx-community/Soprano-1.1-80M-6bit"
-size_mb = 49
-
-[models."soprano-1.1".80m.8bit]
-repo_id = "mlx-community/Soprano-1.1-80M-8bit"
-size_mb = 62
-
 [models.strand-rust-coder-v1.14b.4bit]
 repo_id = "mlx-community/Strand-Rust-Coder-14B-v1-4bit"
 size_mb = 4403
-
-[models.telechat3-thinking.36b.4bit]
-repo_id = "mlx-community/TeleChat3-36B-Thinking-4bit"
-size_mb = 10801
-
-[models.telechat3-thinking.36b.6bit]
-repo_id = "mlx-community/TeleChat3-36B-Thinking-6bit"
-size_mb = 15121
-
-[models.telechat3-thinking.36b.8bit]
-repo_id = "mlx-community/TeleChat3-36B-Thinking-8bit"
-size_mb = 19441
 
 [models.translategemma-it.12b.4bit]
 repo_id = "mlx-community/translategemma-12b-it-4bit"
@@ -3450,33 +2766,9 @@ size_mb = 12740
 repo_id = "mlx-community/VibeThinker-1.5B-mlx-4bit"
 size_mb = 460
 
-[models.vibevoice-realtime."0.5b".4bit]
-repo_id = "mlx-community/VibeVoice-Realtime-0.5B-4bit"
-size_mb = 370
-
-[models.vibevoice-realtime."0.5b".6bit]
-repo_id = "mlx-community/VibeVoice-Realtime-0.5B-6bit"
-size_mb = 486
-
-[models.vibevoice-realtime."0.5b".8bit]
-repo_id = "mlx-community/VibeVoice-Realtime-0.5B-8bit"
-size_mb = 603
-
 [models.voxtral-mini-realtime.4b.6bit]
 repo_id = "mlx-community/Voxtral-Mini-4B-Realtime-6bit"
 size_mb = 1860
-
-[models.voxtral-mini-realtime-2602.4b.4bit]
-repo_id = "mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit"
-size_mb = 2036
-
-[models.voxtral-tts-2603.4b.4bit]
-repo_id = "mlx-community/Voxtral-4B-TTS-2603-mlx-4bit"
-size_mb = 1482
-
-[models.voxtral-tts-2603.4b.6bit]
-repo_id = "mlx-community/Voxtral-4B-TTS-2603-mlx-6bit"
-size_mb = 1937
 
 [models.vulnllm-r.7b.4bit]
 repo_id = "mlx-community/VulnLLM-R-7B-4bit"
@@ -3489,7 +2781,3 @@ size_mb = 3177
 [models.vulnllm-r.7b.8bit]
 repo_id = "mlx-community/VulnLLM-R-7B-8bit"
 size_mb = 4085
-
-[models.youtu-llm.2b.4bit]
-repo_id = "mlx-community/Youtu-LLM-2B-4bit"
-size_mb = 663
