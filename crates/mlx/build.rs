@@ -27,7 +27,7 @@ fn main() {
         let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
         fs::write(
             out_dir.join("model_registry.rs"),
-            "pub const MODEL_REGISTRY: &[(&str, &str, ModelKind, u64)] = &[];\n",
+            "pub const MODEL_REGISTRY: &[ModelEntry] = &[];\n",
         )
         .expect("write empty model_registry.rs");
         return;
