@@ -2,7 +2,7 @@ use crate::error::Error;
 use serde::Deserialize;
 use std::path::PathBuf;
 
-const DEFAULT_URL: &str = "http://localhost:8080";
+const DEFAULT_URL: &str = "http://localhost:5632";
 
 #[derive(Deserialize, Default)]
 struct FileConfig {

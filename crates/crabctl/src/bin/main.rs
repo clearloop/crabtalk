@@ -13,7 +13,7 @@ use crabctl::{
 #[derive(Parser)]
 #[command(name = "crabctl", about = "Manage a running crabllm gateway")]
 struct Cli {
-    /// Gateway URL (e.g. http://localhost:8080)
+    /// Gateway URL (e.g. http://localhost:5632)
     #[arg(long)]
     url: Option<String>,
 
