@@ -94,7 +94,8 @@ async fn admin_auth<P: Provider>(
 }
 
 #[derive(Serialize)]
-struct ReloadResponse {
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub(crate) struct ReloadResponse {
     status: &'static str,
     models: usize,
     providers: usize,
@@ -140,7 +141,8 @@ async fn reload_providers<P: Provider>(State(state): State<ProviderAdminState<P>
 /// Request body for `POST /v1/admin/providers`. Flat shape: a
 /// provider name plus the full `ProviderConfig` inline.
 #[derive(Deserialize)]
-struct CreateProviderRequest {
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub(crate) struct CreateProviderRequest {
     name: String,
     #[serde(default, alias = "standard")]
     kind: ProviderKind,
@@ -189,7 +191,8 @@ impl CreateProviderRequest {
 
 /// Response shape for provider GET — secrets masked.
 #[derive(Serialize)]
-struct ProviderSummary {
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub(crate) struct ProviderSummary {
     name: String,
     kind: ProviderKind,
     #[serde(skip_serializing_if = "Option::is_none")]

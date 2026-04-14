@@ -113,6 +113,7 @@ fn default_listen() -> String {
 
 /// Which provider implementation to use.
 #[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(rename_all = "snake_case")]
 pub enum ProviderKind {
     #[default]
