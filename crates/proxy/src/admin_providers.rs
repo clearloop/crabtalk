@@ -64,7 +64,6 @@ pub fn provider_admin_routes<P: Provider + 'static>(
         write_lock: Arc::new(Mutex::new(())),
     };
     Router::new()
-        .route("/v1/admin/providers/reload", post(reload_providers::<P>))
         .route(
             "/v1/admin/providers",
             post(create_provider::<P>).get(list_providers::<P>),
@@ -91,49 +90,6 @@ async fn admin_auth<P: Provider>(
         return r;
     }
     next.run(request).await
-}
-
-#[derive(Serialize)]
-#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
-pub(crate) struct ReloadResponse {
-    status: &'static str,
-    models: usize,
-    providers: usize,
-}
-
-/// POST /v1/admin/providers/reload — re-read config from disk, merge
-/// dynamic providers from storage, and atomically swap the registry.
-async fn reload_providers<P: Provider>(State(state): State<ProviderAdminState<P>>) -> Response {
-    let _guard = state.write_lock.lock().await;
-
-    let mut config = match read_toml_config(&state.config_path).await {
-        Ok(c) => c,
-        Err(r) => return r,
-    };
-    merge_stored_providers(state.storage.as_ref(), &mut config).await;
-
-    let new_registry = match (state.rebuilder)(&config) {
-        Ok(r) => r,
-        Err(e) => {
-            return crate::admin::err_response(
-                StatusCode::BAD_REQUEST,
-                &format!("failed to build registry: {e}"),
-                "invalid_request_error",
-            );
-        }
-    };
-
-    let models = new_registry.model_names().count();
-    let providers = new_registry.provider_count();
-    state.registry.store(Arc::new(new_registry));
-    tracing::info!(models, providers, "provider registry reloaded");
-
-    Json(ReloadResponse {
-        status: "ok",
-        models,
-        providers,
-    })
-    .into_response()
 }
 
 // ── CRUD ──

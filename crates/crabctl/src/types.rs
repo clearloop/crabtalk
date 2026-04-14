@@ -52,14 +52,6 @@ pub struct KeySummary {
     pub source: String,
 }
 
-/// POST /v1/admin/providers/reload response.
-#[derive(Deserialize, Serialize)]
-pub struct ReloadResponse {
-    pub status: String,
-    pub models: usize,
-    pub providers: usize,
-}
-
 /// GET /v1/admin/usage entry.
 #[derive(Deserialize, Serialize)]
 pub struct UsageEntry {

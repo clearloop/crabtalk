@@ -211,8 +211,6 @@ enum ProviderCommands {
         /// Provider name
         name: String,
     },
-    /// Reload providers from config file
-    Reload,
 }
 
 #[derive(Subcommand)]
@@ -517,17 +515,6 @@ async fn run_providers(
         ProviderCommands::Delete { name } => {
             client.delete_provider(&name).await?;
             println!("Provider '{name}' deleted.");
-        }
-        ProviderCommands::Reload => {
-            let resp = client.reload_providers().await?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&resp).unwrap());
-                return Ok(());
-            }
-            println!(
-                "Providers reloaded: {} models, {} providers.",
-                resp.models, resp.providers
-            );
         }
     }
     Ok(())

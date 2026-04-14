@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     types::{
         AuditRecord, BudgetEntry, CreateKeyRequest, CreateProviderRequest, KeyResponse, KeySummary,
-        ProviderSummary, ReloadResponse, UsageEntry,
+        ProviderSummary, UsageEntry,
     },
 };
 use reqwest::StatusCode;
@@ -114,16 +114,6 @@ impl AdminClient {
         Self::check(resp).await
     }
 
-    async fn post_empty(&self, path: &str) -> Result<reqwest::Response, Error> {
-        let resp = self
-            .client
-            .post(self.url(path))
-            .bearer_auth(&self.token)
-            .send()
-            .await?;
-        Self::check(resp).await
-    }
-
     async fn patch_json<T: serde::Serialize>(
         &self,
         path: &str,
@@ -183,14 +173,6 @@ impl AdminClient {
     }
 
     // ── Providers ──
-
-    pub async fn reload_providers(&self) -> Result<ReloadResponse, Error> {
-        Ok(self
-            .post_empty("/v1/admin/providers/reload")
-            .await?
-            .json()
-            .await?)
-    }
 
     pub async fn list_providers(&self) -> Result<Vec<ProviderSummary>, Error> {
         Ok(self.get("/v1/admin/providers").await?.json().await?)

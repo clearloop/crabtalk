@@ -16,7 +16,7 @@ use utoipa::openapi::{
 };
 
 use crate::admin::{CreateKeyRequest, KeyResponse, KeySummary};
-use crate::admin_providers::{CreateProviderRequest, ProviderSummary, ReloadResponse};
+use crate::admin_providers::{CreateProviderRequest, ProviderSummary};
 use crate::ext::usage::UsageEntry;
 
 const TAG_API: &str = "API";
@@ -64,7 +64,6 @@ const TAG_INFRA: &str = "Infrastructure";
     KeySummary,
     CreateProviderRequest,
     ProviderSummary,
-    ReloadResponse,
     UsageEntry,
 )))]
 struct Components;
@@ -403,14 +402,6 @@ pub fn spec() -> utoipa::openapi::OpenApi {
                         no_content("Provider deleted"),
                     ),
                 ],
-            ),
-        )
-        .path(
-            "/v1/admin/providers/reload",
-            PathItem::new(
-                HttpMethod::Post,
-                op(TAG_ADMIN_PROVIDERS, "Reload provider registry from config")
-                    .responses(json_ok("ReloadResponse", "Reload result")),
             ),
         )
         .path(
