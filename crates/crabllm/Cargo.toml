@@ -10,7 +10,7 @@ keywords = ["llm", "gateway", "proxy", "openai", "anthropic"]
 categories = ["command-line-utilities", "web-programming::http-server"]
 
 [features]
-default = ["rustls"]
+default = ["native-tls"]
 native-tls = ["crabllm-proxy/native-tls"]
 rustls = ["crabllm-proxy/rustls"]
 storage-redis = ["crabllm-proxy/storage-redis"]

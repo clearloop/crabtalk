@@ -60,14 +60,14 @@ Client → POST /chat/completions (OpenAI format)
 
 The outbound HTTP client (used for provider API calls) is feature-gated:
 
-- `rustls` (default) — pure-Rust TLS using the `ring` crypto provider. Reads the OS trust store via `rustls-native-certs`. Small container images, no libssl needed.
-- `native-tls` — uses the platform TLS library (Security.framework on macOS, SChannel on Windows, OpenSSL on Linux). Same OS trust store, but via the system library — useful when matching infra that already links OpenSSL, or when operators need the exact cert-loading behavior of the system stack.
+- `native-tls` (default) — uses the platform TLS library (Security.framework on macOS, SChannel on Windows, OpenSSL on Linux). Reads the OS trust store directly, which picks up corporate CA roots for free. The shipped Docker image installs `libssl3` to satisfy the dynamic link on Linux.
+- `rustls` — pure-Rust TLS using the `ring` crypto provider, with roots loaded via `rustls-native-certs`. Useful for minimal containers where avoiding `libssl` matters.
 
 The two features are mutually exclusive; enabling both or neither fails at compile time.
 
 ```sh
-cargo build -p crabllm                                            # rustls (default)
-cargo build -p crabllm --no-default-features --features native-tls
+cargo build -p crabllm                                        # native-tls (default)
+cargo build -p crabllm --no-default-features --features rustls
 ```
 
 ## Design
