@@ -88,6 +88,10 @@ listen = "127.0.0.1:5632"
 # token can manage keys, providers, and inspect usage — keep it secret.
 admin_token = "{admin_token}"
 
+# OpenAPI docs at /docs (Scalar UI) and /openapi.json. Set to false to
+# disable, or rebuild with `--no-default-features` to strip the feature.
+# openapi = true
+
 # Default user-facing API key. Clients send this as the
 # `Authorization: Bearer <key>` header. Add more via:
 #   crabctl keys create <name> --models m1,m2
