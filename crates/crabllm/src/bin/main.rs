@@ -460,6 +460,9 @@ async fn run<S: Storage + 'static>(
         tracing::info!("openapi docs enabled at /docs");
     }
 
+    // Wrap every route — API, admin, /health, openapi — with request logging.
+    let app = app.layer(axum::middleware::from_fn(crabllm_proxy::log_request));
+
     let listener = match tokio::net::TcpListener::bind(&addr).await {
         Ok(l) => l,
         Err(e) => {
