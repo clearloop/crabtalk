@@ -50,8 +50,10 @@ pub struct GatewayConfig {
     /// Graceful shutdown timeout in seconds. Default: 30.
     #[serde(default = "default_shutdown_timeout")]
     pub shutdown_timeout: u64,
-    /// Enable OpenAPI documentation at /openapi.json and /docs.
-    #[serde(default)]
+    /// Serve OpenAPI documentation at `/openapi.json` and `/docs`.
+    /// Defaults to `true`; set `openapi = false` to disable.
+    /// Ignored unless the binary is built with the `openapi` feature.
+    #[serde(default = "default_openapi")]
     pub openapi: bool,
 }
 
@@ -99,6 +101,10 @@ pub struct ProviderConfig {
 
 fn default_shutdown_timeout() -> u64 {
     30
+}
+
+fn default_openapi() -> bool {
+    true
 }
 
 fn default_listen() -> String {
