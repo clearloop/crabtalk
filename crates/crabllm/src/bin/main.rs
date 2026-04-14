@@ -25,6 +25,10 @@ use std::{
 #[derive(Parser)]
 #[command(name = "crabllm", about = "High-performance LLM API gateway")]
 struct Cli {
+    /// Increase log verbosity: -v info, -vv debug, -vvv trace. `RUST_LOG` overrides.
+    #[arg(short, long, action = clap::ArgAction::Count, global = true)]
+    verbose: u8,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -56,6 +60,7 @@ enum Commands {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
+    init_tracing(cli.verbose);
 
     match cli.command {
         Some(Commands::Serve { config, bind }) => serve(config, bind).await,
@@ -63,6 +68,21 @@ async fn main() {
         // Default: serve with default config path.
         None => serve(PathBuf::from("crabllm.toml"), None).await,
     }
+}
+
+fn init_tracing(verbose: u8) {
+    use tracing_subscriber::EnvFilter;
+    // Flag wins over RUST_LOG — otherwise `-vvv` would be silently ignored
+    // when the user has `RUST_LOG=error` in their shell rc.
+    let filter = match verbose {
+        0 => EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+            EnvFilter::new("crabllm=info,crabllm_proxy=info,crabllm_provider=info,warn")
+        }),
+        1 => EnvFilter::new("info"),
+        2 => EnvFilter::new("debug"),
+        _ => EnvFilter::new("trace"),
+    };
+    tracing_subscriber::fmt().with_env_filter(filter).init();
 }
 
 fn init(out: PathBuf, force: bool) {
@@ -242,18 +262,17 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
     // place with a fresh admin token and default API key. This keeps the
     // Docker UX to a single command: `crabllm serve --config /data/…`.
     if !config_path.exists() {
-        eprintln!(
-            "config {} not found — generating a starter config",
-            config_path.display()
+        tracing::info!(
+            path = %config_path.display(),
+            "config not found — generating a starter config"
         );
         init(config_path.clone(), false);
-        eprintln!();
     }
 
     let mut config = match GatewayConfig::from_file(&config_path) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("error: failed to load config: {e}");
+            tracing::error!("failed to load config: {e}");
             std::process::exit(1);
         }
     };
@@ -279,7 +298,7 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
             let storage = match crabllm_proxy::storage::RedisStorage::open(url).await {
                 Ok(s) => Arc::new(s),
                 Err(e) => {
-                    eprintln!("error: failed to open redis storage: {e}");
+                    tracing::error!("failed to open redis storage: {e}");
                     std::process::exit(1);
                 }
             };
@@ -287,7 +306,7 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
         }
         #[cfg(not(feature = "storage-redis"))]
         "redis" => {
-            eprintln!("error: redis storage requires the 'storage-redis' feature");
+            tracing::error!("redis storage requires the 'storage-redis' feature");
             std::process::exit(1);
         }
         #[cfg(feature = "storage-sqlite")]
@@ -301,7 +320,7 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
             let storage = match crabllm_proxy::storage::SqliteStorage::open(&url).await {
                 Ok(s) => Arc::new(s),
                 Err(e) => {
-                    eprintln!("error: failed to open sqlite storage: {e}");
+                    tracing::error!("failed to open sqlite storage: {e}");
                     std::process::exit(1);
                 }
             };
@@ -309,7 +328,7 @@ async fn serve(config_path: PathBuf, bind: Option<String>) {
         }
         #[cfg(not(feature = "storage-sqlite"))]
         "sqlite" => {
-            eprintln!("error: sqlite storage requires the 'storage-sqlite' feature");
+            tracing::error!("sqlite storage requires the 'storage-sqlite' feature");
             std::process::exit(1);
         }
         _ => {
@@ -336,7 +355,7 @@ async fn run<S: Storage + 'static>(
         match ProviderRegistry::from_config(&config, Dispatch::Remote) {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("error: failed to build provider registry: {e}");
+                tracing::error!("failed to build provider registry: {e}");
                 std::process::exit(1);
             }
         };
@@ -345,7 +364,7 @@ async fn run<S: Storage + 'static>(
         match build_extensions(&config, storage.clone() as Arc<dyn Storage>) {
             Ok(result) => result,
             Err(e) => {
-                eprintln!("error: failed to build extensions: {e}");
+                tracing::error!("failed to build extensions: {e}");
                 std::process::exit(1);
             }
         };
@@ -438,25 +457,29 @@ async fn run<S: Storage + 'static>(
                 "/openapi.json",
                 axum::routing::get(move || async { axum::Json(spec) }),
             );
-        eprintln!("openapi docs enabled at /docs");
+        tracing::info!("openapi docs enabled at /docs");
     }
 
     let listener = match tokio::net::TcpListener::bind(&addr).await {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("error: failed to bind to {addr}: {e}");
+            tracing::error!("failed to bind to {addr}: {e}");
             std::process::exit(1);
         }
     };
 
-    eprintln!(
-        "crabllm listening on {addr} ({model_count} models, {provider_count} providers, {ext_count} extensions)"
+    tracing::info!(
+        addr = %addr,
+        models = model_count,
+        providers = provider_count,
+        extensions = ext_count,
+        "crabllm listening"
     );
 
     let server = axum::serve(NoDelayListener(listener), app)
         .with_graceful_shutdown(shutdown_signal(shutdown_timeout));
     if let Err(e) = server.await {
-        eprintln!("error: server failed: {e}");
+        tracing::error!("server failed: {e}");
     }
 }
 
@@ -476,15 +499,15 @@ async fn shutdown_signal(drain_timeout: Duration) {
     #[cfg(not(unix))]
     ctrl_c.await.ok();
 
-    eprintln!(
-        "shutdown signal received, draining connections ({}s timeout)...",
-        drain_timeout.as_secs()
+    tracing::info!(
+        timeout_secs = drain_timeout.as_secs(),
+        "shutdown signal received, draining connections"
     );
 
     // Force exit after drain timeout.
     tokio::spawn(async move {
         tokio::time::sleep(drain_timeout).await;
-        eprintln!("drain timeout exceeded, forcing exit");
+        tracing::warn!("drain timeout exceeded, forcing exit");
         std::process::exit(0);
     });
 }
@@ -525,7 +548,6 @@ fn build_extensions(
 ) -> Result<Extensions, String> {
     let mut extensions: Vec<Box<dyn Extension>> = Vec::new();
     let mut admin_routes: Vec<axum::Router> = Vec::new();
-    let mut has_logging = false;
 
     let ext_table = match &config.extensions {
         Some(serde_json::Value::Object(t)) => t,
@@ -557,7 +579,6 @@ fn build_extensions(
             "logging" => {
                 let ext = RequestLogger::new(value)?;
                 extensions.push(Box::new(ext));
-                has_logging = true;
             }
             "audit" => {
                 let ext = AuditLogger::new(value, storage.clone(), config.models.clone())?;
@@ -570,11 +591,6 @@ fn build_extensions(
                 ));
             }
         }
-    }
-
-    // Initialize tracing subscriber if logging extension is enabled.
-    if has_logging {
-        tracing_subscriber::fmt::init();
     }
 
     Ok((extensions, admin_routes))
