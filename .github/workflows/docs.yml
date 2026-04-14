@@ -27,7 +27,8 @@ jobs:
       - name: Build OpenAPI viewer
         run: |
           cargo build -p crabllm --release
-          ./target/release/crabllm openapi --format html > docs/book/api.html
+          mkdir -p docs/book/api
+          ./target/release/crabllm openapi --format html > docs/book/api/index.html
       - name: Deploy
         run: |
           cd docs/book

@@ -11,7 +11,7 @@ configured provider — OpenAI, Anthropic, Azure, Ollama, and any OpenAI-compati
 
 One API format. Many providers. Low overhead.
 
-See the [docs][docs] for [providers][providers], [routing][routing], [extensions][extensions], and [configuration][configuration].
+See the [docs][docs] for [providers][providers], [routing][routing], [extensions][extensions], and [configuration][configuration]. The full HTTP API is browsable at the [interactive reference][api].
 
 
 ## Quick Start
@@ -73,7 +73,7 @@ make summary                       # generate docs/src/benchmarks.md
 ```
 
 [bifrost]: https://github.com/maximhq/bifrost
-[benchmarks]: https://clearloop.github.io/crabllm/benchmarks.html
+[benchmarks]: https://crabtalk.github.io/crabllm/benchmarks.html
 
 ## Crates
 
@@ -93,9 +93,10 @@ MIT OR Apache-2.0
 [crabllm-crate]: https://crates.io/crates/crabllm
 [crabtalk]: https://crabtalk.xyz
 [litellm]: https://github.com/BerriAI/litellm
-[docs]: https://clearloop.github.io/crabllm
-[docker]: https://clearloop.github.io/crabllm/docker.html
-[providers]: https://clearloop.github.io/crabllm/providers/overview.html
-[routing]: https://clearloop.github.io/crabllm/features/routing.html
-[extensions]: https://clearloop.github.io/crabllm/features/extensions.html
-[configuration]: https://clearloop.github.io/crabllm/configuration.html
+[docs]: https://crabtalk.github.io/crabllm
+[docker]: https://crabtalk.github.io/crabllm/docker.html
+[api]: https://crabtalk.github.io/crabllm/api
+[providers]: https://crabtalk.github.io/crabllm/providers/overview.html
+[routing]: https://crabtalk.github.io/crabllm/features/routing.html
+[extensions]: https://crabtalk.github.io/crabllm/features/extensions.html
+[configuration]: https://crabtalk.github.io/crabllm/configuration.html
