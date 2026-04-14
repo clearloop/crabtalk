@@ -503,7 +503,7 @@ pub async fn load_stored_keys(
     let pairs = match storage.list(&PREFIX_KEYS).await {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("warning: failed to load stored keys: {e}");
+            tracing::warn!("failed to load stored keys: {e}");
             return;
         }
     };

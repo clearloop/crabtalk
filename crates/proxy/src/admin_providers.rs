@@ -126,7 +126,7 @@ async fn reload_providers<P: Provider>(State(state): State<ProviderAdminState<P>
     let models = new_registry.model_names().count();
     let providers = new_registry.provider_count();
     state.registry.store(Arc::new(new_registry));
-    eprintln!("provider registry reloaded: {models} models, {providers} providers");
+    tracing::info!(models, providers, "provider registry reloaded");
 
     Json(ReloadResponse {
         status: "ok",
@@ -483,7 +483,7 @@ pub async fn merge_stored_providers(storage: &dyn Storage, config: &mut GatewayC
     let pairs = match storage.list(&PREFIX_PROVIDERS).await {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("warning: failed to load stored providers: {e}");
+            tracing::warn!("failed to load stored providers: {e}");
             return;
         }
     };
@@ -493,9 +493,9 @@ pub async fn merge_stored_providers(storage: &dyn Storage, config: &mut GatewayC
         };
         // TOML precedence: log a warning and skip if name already present.
         if config.providers.contains_key(&sp.name) {
-            eprintln!(
-                "warning: dynamic provider '{}' is shadowed by a TOML-managed provider of the same name",
-                sp.name
+            tracing::warn!(
+                name = %sp.name,
+                "dynamic provider shadowed by TOML-managed provider of the same name"
             );
             continue;
         }
