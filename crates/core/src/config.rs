@@ -15,6 +15,7 @@ pub struct PricingConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatewayConfig {
     /// Address to listen on, e.g. "0.0.0.0:8080".
+    #[serde(default = "default_listen")]
     pub listen: String,
     /// Named provider configurations.
     #[serde(default)]
@@ -98,6 +99,10 @@ pub struct ProviderConfig {
 
 fn default_shutdown_timeout() -> u64 {
     30
+}
+
+fn default_listen() -> String {
+    "127.0.0.1:5632".to_string()
 }
 
 /// Which provider implementation to use.

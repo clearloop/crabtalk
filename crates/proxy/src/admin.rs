@@ -132,7 +132,9 @@ fn mask_key(key: &str) -> String {
     }
 }
 
-fn generate_key() -> String {
+/// Generate a random `sk-`-prefixed secret (32 bytes of entropy, hex-encoded).
+/// Used for both admin tokens and virtual API keys.
+pub fn generate_key() -> String {
     use rand::Rng;
     let bytes: [u8; 32] = rand::rng().random();
     let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();

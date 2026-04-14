@@ -18,6 +18,7 @@ pub const PREFIX_USAGE: Prefix = *b"usge";
 pub const PREFIX_CACHE: Prefix = *b"cach";
 pub const PREFIX_BUDGET: Prefix = *b"bdgt";
 pub const PREFIX_AUDIT: Prefix = *b"alog";
+pub const PREFIX_PROVIDERS: Prefix = *b"prvd";
 
 pub mod admin;
 pub mod admin_providers;

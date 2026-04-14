@@ -87,6 +87,21 @@ pub fn spec() -> utoipa::openapi::OpenApi {
         )
         // ── Admin — providers ──
         .path(
+            "/v1/admin/providers",
+            multi(&[
+                (HttpMethod::Post, "Create a provider"),
+                (HttpMethod::Get, "List all providers"),
+            ]),
+        )
+        .path(
+            "/v1/admin/providers/{name}",
+            multi(&[
+                (HttpMethod::Get, "Get provider details"),
+                (HttpMethod::Patch, "Update a provider"),
+                (HttpMethod::Delete, "Delete a provider"),
+            ]),
+        )
+        .path(
             "/v1/admin/providers/reload",
             PathItem::new(HttpMethod::Post, op("Reload provider registry from config")),
         )
