@@ -62,7 +62,7 @@ impl HttpClient {
     fn connector() -> Connector {
         let mut http = hyper_util::client::legacy::connect::HttpConnector::new();
         http.enforce_http(false);
-        let tls = native_tls_crate::TlsConnector::builder()
+        let tls = native_tls::TlsConnector::builder()
             .request_alpns(&["h2", "http/1.1"])
             .build()
             .expect("crabllm: failed to build native TLS connector");
