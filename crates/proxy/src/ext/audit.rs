@@ -257,7 +257,7 @@ async fn logs_handler(
         .collect();
 
     // Newest first.
-    records.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    records.sort_by_key(|b| std::cmp::Reverse(b.timestamp));
     records.truncate(query.limit);
 
     Json(records).into_response()
