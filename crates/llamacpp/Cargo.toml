@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Managed llama.cpp server with Ollama registry support"
-keywords = ["llm", "llamacpp", "gguf", "local", "inference", "ollama"]
+keywords = ["llm", "llamacpp", "gguf", "local", "inference"]
 categories = ["command-line-utilities"]
 
 [[bin]]
@@ -33,3 +33,7 @@ flate2 = { workspace = true }
 tar = { workspace = true }
 zip = { workspace = true }
 dirs = { workspace = true }
+
+[features]
+default = ["native-tls"]
+native-tls = ["crabllm-provider/native-tls"]

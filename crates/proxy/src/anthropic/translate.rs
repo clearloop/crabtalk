@@ -50,23 +50,12 @@ pub fn to_chat_completion(req: AnthropicRequest) -> ChatCompletionRequest {
         .map(|tools| tools.into_iter().map(convert_tool).collect());
     let tool_choice = req.tool_choice.as_ref().and_then(translate_tool_choice);
 
-    let mut extra = serde_json::Map::new();
-    if let Some(thinking) = req.thinking {
-        extra.insert(
-            "thinking".to_string(),
-            serde_json::json!({
-                "type": thinking.kind,
-                "budget_tokens": thinking.budget_tokens,
-            }),
-        );
-    }
-
     ChatCompletionRequest {
         model: req.model,
         messages,
         temperature: req.temperature,
         top_p: req.top_p,
-        max_tokens: Some(req.max_tokens),
+        max_tokens: None,
         stream: req.stream,
         stop,
         tools,
@@ -76,7 +65,9 @@ pub fn to_chat_completion(req: AnthropicRequest) -> ChatCompletionRequest {
         seed: None,
         user: None,
         reasoning_effort: None,
-        extra,
+        thinking: req.thinking,
+        anthropic_max_tokens: Some(req.max_tokens),
+        extra: serde_json::Map::new(),
     }
 }
 
@@ -265,12 +256,23 @@ fn image_source_to_url(source: &serde_json::Value) -> Option<String> {
 }
 
 fn convert_tool(t: AnthropicTool) -> Tool {
+    let mut schema = t.input_schema;
+    crabllm_provider::schema::inline_refs(&mut schema);
+    crabllm_provider::schema::strip_fields(
+        &mut schema,
+        &[
+            "propertyNames",
+            "exclusiveMinimum",
+            "exclusiveMaximum",
+            "const",
+        ],
+    );
     Tool {
         kind: ToolType::Function,
         function: FunctionDef {
             name: t.name,
             description: t.description,
-            parameters: Some(t.input_schema),
+            parameters: Some(schema),
         },
         strict: None,
     }

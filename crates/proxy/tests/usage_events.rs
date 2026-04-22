@@ -99,7 +99,6 @@ fn empty_config() -> GatewayConfig {
         aliases: HashMap::new(),
         models: HashMap::new(),
         cloud_models: None,
-        local_models: None,
         admin_token: None,
         shutdown_timeout: 30,
         openapi: true,

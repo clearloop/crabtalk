@@ -116,6 +116,7 @@ impl crabllm_core::Extension for AuditLogger {
             cost_micros,
             latency_ms: ctx.started_at.elapsed().as_millis() as u64,
             status: 200,
+            error: None,
         });
 
         Box::pin(async {})
@@ -145,6 +146,7 @@ impl crabllm_core::Extension for AuditLogger {
                 cost_micros,
                 latency_ms: ctx.started_at.elapsed().as_millis() as u64,
                 status: 200,
+                error: None,
             });
         }
 
@@ -163,6 +165,7 @@ impl crabllm_core::Extension for AuditLogger {
             cost_micros: 0,
             latency_ms: ctx.started_at.elapsed().as_millis() as u64,
             status: error_status(error),
+            error: Some(error.to_string()),
         });
 
         Box::pin(async {})
@@ -170,19 +173,21 @@ impl crabllm_core::Extension for AuditLogger {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct AuditRecord {
-    request_id: String,
-    timestamp: i64,
-    key_name: String,
-    model: String,
-    provider: String,
+pub struct AuditRecord {
+    pub request_id: String,
+    pub timestamp: i64,
+    pub key_name: String,
+    pub model: String,
+    pub provider: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    prompt_tokens: Option<u32>,
+    pub prompt_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    completion_tokens: Option<u32>,
-    cost_micros: i64,
-    latency_ms: u64,
-    status: u16,
+    pub completion_tokens: Option<u32>,
+    pub cost_micros: i64,
+    pub latency_ms: u64,
+    pub status: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -252,7 +257,7 @@ async fn logs_handler(
         .collect();
 
     // Newest first.
-    records.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    records.sort_by_key(|b| std::cmp::Reverse(b.timestamp));
     records.truncate(query.limit);
 
     Json(records).into_response()

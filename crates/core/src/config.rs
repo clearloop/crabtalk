@@ -40,10 +40,6 @@ pub struct GatewayConfig {
     /// Entries are merged into `models` at startup (config entries win).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cloud_models: Option<String>,
-    /// Path to local model registry TOML file (alias → HF repo ID).
-    /// Extends the build-time MLX model registry.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub local_models: Option<String>,
     /// Admin API bearer token. If set, enables /v1/admin/* endpoints.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub admin_token: Option<String>,
@@ -278,29 +274,6 @@ impl StorageConfig {
     }
 }
 
-/// A single local model entry: HF repo ID and optional disk size.
-#[derive(Debug, Clone, Deserialize)]
-pub struct LocalModelEntry {
-    pub repo_id: String,
-    /// Approximate disk size in megabytes.
-    #[serde(default)]
-    pub size_mb: Option<u64>,
-    /// Whether the model accepts image/video input (VLM).
-    #[serde(default)]
-    pub vision: Option<bool>,
-    /// Architecture / model_type from HuggingFace config (e.g. `"qwen2"`, `"llama"`).
-    #[serde(default)]
-    pub arch: Option<String>,
-}
-
-/// Wrapper for local model TOML: `[models.family.size.quant]` nested tables.
-#[cfg(feature = "gateway")]
-#[derive(Deserialize)]
-struct LocalModelsFile {
-    #[serde(default)]
-    models: HashMap<String, HashMap<String, HashMap<String, LocalModelEntry>>>,
-}
-
 impl GatewayConfig {
     /// Load config from a TOML file, expanding `${VAR}` patterns in
     /// string values. If `cloud_models` is set, loads the referenced
@@ -339,36 +312,6 @@ impl GatewayConfig {
             self.models.entry(model).or_insert(info);
         }
         Ok(())
-    }
-
-    /// Load local model entries from the configured TOML file.
-    ///
-    /// The TOML uses nested tables `[models.family.size.quant]`. This
-    /// flattens them to `"family.size.quant" → entry` for consumers.
-    #[cfg(feature = "gateway")]
-    pub fn load_local_models(
-        &self,
-        config_dir: &std::path::Path,
-    ) -> Result<HashMap<String, LocalModelEntry>, Box<dyn std::error::Error>> {
-        let Some(ref path) = self.local_models else {
-            return Ok(HashMap::new());
-        };
-        let full = config_dir.join(path);
-        let raw = std::fs::read_to_string(&full)
-            .map_err(|e| format!("local_models '{}': {e}", full.display()))?;
-        let file: LocalModelsFile =
-            toml::from_str(&raw).map_err(|e| format!("local_models '{}': {e}", full.display()))?;
-
-        let mut result = HashMap::new();
-        for (family, sizes) in file.models {
-            for (size, quants) in sizes {
-                for (quant, entry) in quants {
-                    let alias = format!("{family}.{size}.{quant}");
-                    result.insert(alias, entry);
-                }
-            }
-        }
-        Ok(result)
     }
 }
 

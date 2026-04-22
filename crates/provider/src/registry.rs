@@ -166,7 +166,7 @@ impl<P> ProviderRegistry<P> {
             .enumerate()
             .filter(|(i, _)| *i != selected_idx)
             .collect();
-        remaining.sort_by(|a, b| b.1.weight.cmp(&a.1.weight));
+        remaining.sort_by_key(|b| std::cmp::Reverse(b.1.weight));
         result.extend(remaining.into_iter().map(|(_, d)| d.as_ref()));
 
         Some(result)
