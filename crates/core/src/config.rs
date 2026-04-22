@@ -313,7 +313,6 @@ impl GatewayConfig {
         }
         Ok(())
     }
-
 }
 
 /// Expand `${VAR}` patterns in a string using environment variables.

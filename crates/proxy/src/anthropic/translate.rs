@@ -260,7 +260,12 @@ fn convert_tool(t: AnthropicTool) -> Tool {
     crabllm_provider::schema::inline_refs(&mut schema);
     crabllm_provider::schema::strip_fields(
         &mut schema,
-        &["propertyNames", "exclusiveMinimum", "exclusiveMaximum", "const"],
+        &[
+            "propertyNames",
+            "exclusiveMinimum",
+            "exclusiveMaximum",
+            "const",
+        ],
     );
     Tool {
         kind: ToolType::Function,
