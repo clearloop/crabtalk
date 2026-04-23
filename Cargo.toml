@@ -3,7 +3,7 @@ members = ["crates/*"]
 resolver = "3"
 
 [workspace.package]
-version = "0.0.17"
+version = "0.0.18"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "High-performance LLM API gateway"
@@ -12,14 +12,14 @@ keywords = ["llm", "gateway", "proxy", "openai", "anthropic"]
 categories = ["web-programming::http-server", "network-programming"]
 
 [workspace.dependencies]
-crabllm-core = { version = "0.0.17", path = "crates/core" }
-crabllm-provider = { version = "0.0.17", path = "crates/provider", default-features = false }
-crabllm-proxy = { version = "0.0.17", path = "crates/proxy" }
-crabllm-bench = { version = "0.0.17", path = "crates/bench" }
-crabllm = { version = "0.0.17", path = "crates/crabllm" }
-crabllm-llamacpp = { version = "0.0.17", path = "crates/llamacpp" }
-crabllm-mlx = { version = "0.0.17", path = "crates/mlx" }
-crabctl = { version = "0.0.17", path = "crates/crabctl" }
+crabllm-core = { version = "0.0.18", path = "crates/core" }
+crabllm-provider = { version = "0.0.18", path = "crates/provider", default-features = false }
+crabllm-proxy = { version = "0.0.18", path = "crates/proxy", default-features = false }
+crabllm-bench = { version = "0.0.18", path = "crates/bench" }
+crabllm = { version = "0.0.18", path = "crates/crabllm" }
+crabllm-llamacpp = { version = "0.0.18", path = "crates/llamacpp" }
+crabllm-mlx = { version = "0.0.18", path = "crates/mlx" }
+crabctl = { version = "0.0.18", path = "crates/crabctl" }
 
 # crates-io
 axum = { version = "0.8", features = ["multipart"] }
@@ -28,13 +28,13 @@ bytes = "1"
 clap = { version = "4", features = ["derive"] }
 futures = "0.3"
 futures-core = "0.3"
-reqwest = { version = "0.13", default-features = false, features = ["http2", "json", "multipart", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sonic-rs = "0.5"
-hyper = { version = "1", features = ["client", "http1", "http2"] }
-hyper-util = { version = "0.1", features = ["client-legacy", "http1", "http2", "tokio"] }
-hyper-rustls = { version = "0.27", default-features = false, features = ["ring", "http1", "http2", "tls12", "native-tokio", "logging"] }
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["ring", "http1", "tls12", "native-tokio", "logging"] }
 hyper-tls = "0.6"
 native-tls = { version = "0.2", features = ["alpn"] }
 http-body-util = "0.1"

@@ -1,13 +1,10 @@
+use crate::client::{ByteStream, RawResponse};
 use bytes::Bytes;
 use crabllm_core::Error;
-use futures::stream::{Stream, StreamExt};
+use futures::stream::StreamExt;
 use http_body_util::{BodyExt, BodyStream, Full};
 use hyper_util::{client::legacy::Client, rt::TokioExecutor};
-use std::{pin::Pin, time::Instant};
-
-fn elapsed_ms(start: Instant) -> u64 {
-    start.elapsed().as_millis() as u64
-}
+use std::time::Instant;
 
 #[cfg(feature = "rustls")]
 type Connector = hyper_rustls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>;
@@ -15,21 +12,10 @@ type Connector = hyper_rustls::HttpsConnector<hyper_util::client::legacy::connec
 type Connector = hyper_tls::HttpsConnector<hyper_util::client::legacy::connect::HttpConnector>;
 type HyperClient = Client<Connector, Full<Bytes>>;
 
-/// Minimal HTTP client for proxy workloads. Wraps hyper-util's pooled
-/// client with HTTPS (rustls) and HTTP/2 support. No redirects, no
-/// cookies, no decompression — just POST and read.
-///
-/// Cloning is cheap (`Client` is internally `Arc`-shared).
+/// hyper-util client. No redirects, no cookies, no decompression.
 #[derive(Clone, Debug)]
 pub struct HttpClient {
     inner: HyperClient,
-}
-
-/// Raw HTTP response — status + body bytes + optional content-type.
-pub struct RawResponse {
-    pub status: u16,
-    pub body: Bytes,
-    pub content_type: Option<String>,
 }
 
 impl Default for HttpClient {
@@ -39,8 +25,6 @@ impl Default for HttpClient {
 }
 
 impl HttpClient {
-    /// Build a new client with TCP_NODELAY, TLS (rustls or native-tls,
-    /// feature-gated), and HTTP/2.
     pub fn new() -> Self {
         let https = Self::connector();
         let inner = Client::builder(TokioExecutor::new()).build(https);
@@ -49,27 +33,31 @@ impl HttpClient {
 
     #[cfg(feature = "rustls")]
     fn connector() -> Connector {
-        hyper_rustls::HttpsConnectorBuilder::new()
+        let builder = hyper_rustls::HttpsConnectorBuilder::new()
             .with_native_roots()
             .expect("crabllm: failed to load native TLS roots")
             .https_or_http()
-            .enable_http1()
-            .enable_http2()
-            .build()
+            .enable_http1();
+        #[cfg(feature = "http2")]
+        let builder = builder.enable_http2();
+        builder.build()
     }
 
     #[cfg(feature = "native-tls")]
     fn connector() -> Connector {
         let mut http = hyper_util::client::legacy::connect::HttpConnector::new();
         http.enforce_http(false);
+        #[cfg(feature = "http2")]
+        let alpns = ["h2", "http/1.1"];
+        #[cfg(not(feature = "http2"))]
+        let alpns = ["http/1.1"];
         let tls = native_tls::TlsConnector::builder()
-            .request_alpns(&["h2", "http/1.1"])
+            .request_alpns(&alpns)
             .build()
             .expect("crabllm: failed to build native TLS connector");
         hyper_tls::HttpsConnector::from((http, tls.into()))
     }
 
-    /// GET a URL and collect the full response.
     pub async fn get(&self, url: &str, headers: &[(&str, &str)]) -> Result<RawResponse, Error> {
         let uri: http::Uri = url
             .parse()
@@ -85,12 +73,7 @@ impl HttpClient {
             .map_err(|e| Error::Internal(e.to_string()))?;
 
         let resp = self.inner.request(req).await.map_err(|e| {
-            tracing::debug!(
-                url,
-                latency_ms = elapsed_ms(start),
-                error = %e,
-                "provider GET failed"
-            );
+            tracing::debug!(url, latency_ms = start.elapsed().as_millis() as u64, error = %e, "provider GET failed");
             Error::Internal(e.to_string())
         })?;
 
@@ -111,7 +94,7 @@ impl HttpClient {
             url,
             status,
             response_bytes = body.len(),
-            latency_ms = elapsed_ms(start),
+            latency_ms = start.elapsed().as_millis() as u64,
             "provider GET"
         );
 
@@ -122,7 +105,6 @@ impl HttpClient {
         })
     }
 
-    /// POST a body and collect the full response.
     pub async fn post(
         &self,
         url: &str,
@@ -145,13 +127,7 @@ impl HttpClient {
             .map_err(|e| Error::Internal(e.to_string()))?;
 
         let resp = self.inner.request(req).await.map_err(|e| {
-            tracing::debug!(
-                url,
-                request_bytes,
-                latency_ms = elapsed_ms(start),
-                error = %e,
-                "provider call failed"
-            );
+            tracing::debug!(url, request_bytes, latency_ms = start.elapsed().as_millis() as u64, error = %e, "provider call failed");
             Error::Internal(e.to_string())
         })?;
 
@@ -173,7 +149,7 @@ impl HttpClient {
             status,
             request_bytes,
             response_bytes = body.len(),
-            latency_ms = elapsed_ms(start),
+            latency_ms = start.elapsed().as_millis() as u64,
             "provider call"
         );
 
@@ -184,8 +160,6 @@ impl HttpClient {
         })
     }
 
-    /// POST and return the response body as a [`ByteStream`] for SSE.
-    /// Returns error on 4xx/5xx.
     pub async fn post_stream(
         &self,
         url: &str,
@@ -208,13 +182,7 @@ impl HttpClient {
             .map_err(|e| Error::Internal(e.to_string()))?;
 
         let resp = self.inner.request(req).await.map_err(|e| {
-            tracing::debug!(
-                url,
-                request_bytes,
-                latency_ms = elapsed_ms(start),
-                error = %e,
-                "provider stream failed"
-            );
+            tracing::debug!(url, request_bytes, latency_ms = start.elapsed().as_millis() as u64, error = %e, "provider stream failed");
             Error::Internal(e.to_string())
         })?;
 
@@ -232,18 +200,17 @@ impl HttpClient {
                 status,
                 request_bytes,
                 response_bytes = body.len(),
-                latency_ms = elapsed_ms(start),
+                latency_ms = start.elapsed().as_millis() as u64,
                 "provider stream error"
             );
             return Err(Error::Provider { status, body: text });
         }
 
-        // Latency is time-to-headers, not total stream duration.
         tracing::debug!(
             url,
             status,
             request_bytes,
-            ttfb_ms = elapsed_ms(start),
+            ttfb_ms = start.elapsed().as_millis() as u64,
             "provider stream opened"
         );
 
@@ -258,6 +225,3 @@ impl HttpClient {
         )))
     }
 }
-
-/// A boxed byte stream suitable for SSE parsing.
-pub type ByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>;

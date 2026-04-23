@@ -1,9 +1,3 @@
-#[cfg(all(feature = "rustls", feature = "native-tls"))]
-compile_error!("crabllm-provider: features `rustls` and `native-tls` are mutually exclusive");
-
-#[cfg(not(any(feature = "rustls", feature = "native-tls")))]
-compile_error!("crabllm-provider: enable exactly one of `rustls` or `native-tls`");
-
 use bytes::Bytes;
 use crabllm_core::{
     AudioSpeechRequest, BoxStream, ChatCompletionChunk, ChatCompletionRequest,
@@ -458,9 +452,13 @@ impl Provider for RemoteProvider {
                 .await
             }
             _ => {
-                let request: ChatCompletionRequest = serde_json::from_slice(&raw_body)?;
+                let request: ChatCompletionRequest = crabllm_core::json::from_slice(&raw_body)
+                    .map_err(|e| Error::Internal(e.to_string()))?;
                 let resp = self.chat_completion(&request).await?;
-                Ok(Bytes::from(serde_json::to_vec(&resp)?))
+                Ok(Bytes::from(
+                    crabllm_core::json::to_vec(&resp)
+                        .map_err(|e| Error::Internal(e.to_string()))?,
+                ))
             }
         }
     }
