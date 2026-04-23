@@ -10,7 +10,10 @@ keywords = ["llm", "proxy", "openai", "streaming", "gateway"]
 categories = ["web-programming::http-server", "network-programming"]
 
 [features]
-default = ["native-tls"]
+default = ["hyper", "native-tls", "http2"]
+hyper = ["crabllm-provider/hyper"]
+reqwest = ["crabllm-provider/reqwest"]
+http2 = ["crabllm-provider/http2"]
 native-tls = ["crabllm-provider/native-tls"]
 rustls = ["crabllm-provider/rustls"]
 storage-redis = ["redis"]
@@ -27,7 +30,6 @@ axum.workspace = true
 bytes.workspace = true
 dashmap.workspace = true
 futures.workspace = true
-reqwest.workspace = true
 serde_json.workspace = true
 sonic-rs.workspace = true
 serde.workspace = true

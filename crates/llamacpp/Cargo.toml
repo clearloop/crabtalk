@@ -35,5 +35,9 @@ zip = { workspace = true }
 dirs = { workspace = true }
 
 [features]
-default = ["native-tls"]
+default = ["hyper", "http2", "native-tls"]
+hyper = ["crabllm-provider/hyper"]
+reqwest = ["crabllm-provider/reqwest"]
+http2 = ["crabllm-provider/http2"]
 native-tls = ["crabllm-provider/native-tls"]
+rustls = ["crabllm-provider/rustls"]

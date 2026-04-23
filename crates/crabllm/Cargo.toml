@@ -10,7 +10,10 @@ keywords = ["llm", "gateway", "proxy", "openai", "anthropic"]
 categories = ["command-line-utilities", "web-programming::http-server"]
 
 [features]
-default = ["native-tls", "openapi"]
+default = ["hyper", "http2", "native-tls", "openapi"]
+hyper = ["crabllm-proxy/hyper"]
+reqwest = ["crabllm-proxy/reqwest"]
+http2 = ["crabllm-proxy/http2"]
 native-tls = ["crabllm-proxy/native-tls"]
 rustls = ["crabllm-proxy/rustls"]
 storage-redis = ["crabllm-proxy/storage-redis"]
@@ -25,7 +28,7 @@ path = "src/bin/main.rs"
 [dependencies]
 crabllm-core = { workspace = true, features = ["gateway"] }
 crabllm-provider.workspace = true
-crabllm-proxy.workspace = true
+crabllm-proxy = { workspace = true, default-features = false }
 
 # crates-io
 arc-swap.workspace = true
