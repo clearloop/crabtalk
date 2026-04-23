@@ -16,8 +16,13 @@ default = ["hyper", "native-tls", "http2"]
 hyper = ["dep:hyper", "dep:hyper-util", "dep:http", "dep:http-body-util"]
 reqwest = ["dep:reqwest"]
 
-# HTTP/2 — applies to whichever backend is enabled.
-http2 = ["reqwest?/http2"]
+# HTTP/2 — pulls h2 into whichever backend is enabled.
+http2 = [
+    "hyper?/http2",
+    "hyper-util?/http2",
+    "hyper-rustls?/http2",
+    "reqwest?/http2",
+]
 
 # TLS — pick exactly one. Activates per-backend TLS deps; the unused
 # backend's TLS deps still compile but contribute no bytes to the final

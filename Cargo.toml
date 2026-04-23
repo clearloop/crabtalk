@@ -28,13 +28,13 @@ bytes = "1"
 clap = { version = "4", features = ["derive"] }
 futures = "0.3"
 futures-core = "0.3"
-reqwest = { version = "0.13", default-features = false, features = ["http2", "json", "multipart", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "multipart", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sonic-rs = "0.5"
-hyper = { version = "1", features = ["client", "http1", "http2"] }
-hyper-util = { version = "0.1", features = ["client-legacy", "http1", "http2", "tokio"] }
-hyper-rustls = { version = "0.27", default-features = false, features = ["ring", "http1", "http2", "tls12", "native-tokio", "logging"] }
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
+hyper-rustls = { version = "0.27", default-features = false, features = ["ring", "http1", "tls12", "native-tokio", "logging"] }
 hyper-tls = "0.6"
 native-tls = { version = "0.2", features = ["alpn"] }
 http-body-util = "0.1"
