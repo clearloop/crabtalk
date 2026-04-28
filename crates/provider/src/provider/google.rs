@@ -274,9 +274,7 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
                     .unwrap_or(serde_json::Value::Object(Default::default()));
                 let signature = extract_signature_from_id(&tc.id)
                     .map(|s| s.to_string())
-                    .or_else(|| {
-                        needs_skip_sentinel.then(|| SKIP_VALIDATOR_SIGNATURE.to_string())
-                    });
+                    .or_else(|| needs_skip_sentinel.then(|| SKIP_VALIDATOR_SIGNATURE.to_string()));
                 parts.push(GeminiPart {
                     text: None,
                     function_call: Some(GeminiFunctionCall {

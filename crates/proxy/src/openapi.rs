@@ -7,7 +7,7 @@ use crabllm_core::{
 };
 use utoipa::OpenApi;
 use utoipa::openapi::{
-    ContentBuilder, HttpMethod, InfoBuilder, Paths, PathItem, PathsBuilder, Ref, RefOr, Required,
+    ContentBuilder, HttpMethod, InfoBuilder, PathItem, Paths, PathsBuilder, Ref, RefOr, Required,
     ResponseBuilder, Responses, ResponsesBuilder, Tag,
     path::{OperationBuilder, ParameterBuilder, ParameterIn},
     request_body::{RequestBody, RequestBodyBuilder},

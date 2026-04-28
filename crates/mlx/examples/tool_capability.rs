@@ -61,7 +61,9 @@ fn tool_request(model: &str) -> ChatCompletionRequest {
 
 #[tokio::main]
 async fn main() {
-    let model = std::env::args().nth(1).unwrap_or_else(|| DEFAULT_MODEL.to_string());
+    let model = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| DEFAULT_MODEL.to_string());
     eprintln!("model: {model}\n");
 
     let pool = Arc::new(MlxPool::new(1800).expect("pool"));

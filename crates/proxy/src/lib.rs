@@ -105,10 +105,7 @@ where
     P: Provider + 'static,
 {
     let mut app = routes(state.clone())
-        .layer(middleware::from_fn_with_state(
-            state,
-            auth::auth::<S, P>,
-        ))
+        .layer(middleware::from_fn_with_state(state, auth::auth::<S, P>))
         .layer(middleware::from_fn(track_active_connections));
 
     // Health check — outside auth middleware so load balancers can probe it.
