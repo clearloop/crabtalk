@@ -96,7 +96,21 @@ func decodeMessages(_ json: String) throws -> DecodedMessages {
         let parsed = try parseContent(msg["content"])
         switch msg["role"] as? String {
         case "assistant":
-            history.append(.assistant(parsed.text, images: parsed.images))
+            // Re-synthesize prior tool_calls into the assistant's
+            // content text so multi-turn tool conversations render
+            // faithfully. mlx-swift-lm's `Chat.Message.assistant`
+            // takes only `text + images`, so the gemma chat template's
+            // `message['tool_calls']` branch never fires for replayed
+            // history. Mirror `crates/mlx/src/tool_parser.rs` in
+            // reverse: emit `<|tool_call>call:NAME{...}<tool_call|>`
+            // as raw text the template will pass through verbatim, so
+            // the model sees its own prior output the same way it
+            // generated it.
+            var text = parsed.text
+            if let toolCalls = msg["tool_calls"] as? [[String: Any]], !toolCalls.isEmpty {
+                text += formatGemmaToolCalls(toolCalls)
+            }
+            history.append(.assistant(text, images: parsed.images))
         case "system":
             history.append(.system(parsed.text, images: parsed.images))
         case "tool":
@@ -355,6 +369,67 @@ func decodeDataURL(_ urlStr: String) throws -> UserInput.Image {
         throw FFIError.invalidArg("data URL payload is not a decodable image")
     }
     return .ciImage(image)
+}
+
+// MARK: - Tool call synthesis
+
+/// Render an OpenAI `tool_calls` array as gemma-format inline text:
+/// `<|tool_call>call:NAME{key:value,...}<tool_call|>` per call. Used to
+/// replay assistant tool-call turns through `Chat.Message.assistant`,
+/// which has no tool_calls field of its own. Mirrors the parser at
+/// `crates/mlx/src/tool_parser.rs`.
+///
+/// Arguments arrive as a JSON-encoded string (per OpenAI's wire shape).
+/// Parse into a dict and emit each entry; bail to passthrough if the
+/// JSON isn't an object so we never crash on malformed input.
+func formatGemmaToolCalls(_ toolCalls: [[String: Any]]) -> String {
+    var out = ""
+    for call in toolCalls {
+        guard let function = call["function"] as? [String: Any],
+              let name = function["name"] as? String else {
+            continue
+        }
+        out += "<|tool_call>call:\(name){"
+        let argsString = function["arguments"] as? String ?? ""
+        let argsObj: [String: Any] = {
+            guard let data = argsString.data(using: .utf8),
+                  let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { return [:] }
+            return parsed
+        }()
+        var first = true
+        // Sort keys for stable output — matches the Jinja template's
+        // `dictsort` filter and means re-renders are byte-identical
+        // across runs.
+        for key in argsObj.keys.sorted() {
+            if !first { out += "," }
+            first = false
+            out += "\(key):\(formatGemmaArgValue(argsObj[key] ?? NSNull()))"
+        }
+        out += "}<tool_call|>"
+    }
+    return out
+}
+
+/// Format a single argument value in gemma style. Strings are wrapped
+/// with the `<|"|>` escape sentinel so commas/braces inside text don't
+/// terminate the value parse on the receiving end. Numbers, bools,
+/// null, and nested arrays/objects are emitted as JSON literals.
+private func formatGemmaArgValue(_ value: Any) -> String {
+    if let s = value as? String {
+        return "<|\"|>\(s)<|\"|>"
+    }
+    guard JSONSerialization.isValidJSONObject([value])
+        || (value is NSNumber) || (value is NSNull),
+          let data = try? JSONSerialization.data(
+              withJSONObject: value,
+              options: [.fragmentsAllowed]
+          ),
+          let s = String(data: data, encoding: .utf8)
+    else {
+        return "null"
+    }
+    return s
 }
 
 // MARK: - JSON Schema preprocessing
