@@ -472,6 +472,31 @@ func flattenSchemaUnionTypes(_ schema: inout [String: Any]) {
     }
 }
 
+/// `JSONSerialization` decodes JSON `null` into `NSNull`, which bridges
+/// to `Optional<Any>` when mlx-swift-lm's Jinja value coercer reaches
+/// it inside gemma's `chat_template.jinja`. The coercer rejects that
+/// type with `Cannot convert value of type Optional<Any> to Jinja
+/// Value` and the FFI surfaces a 0/0-token failure. Real-world schemas
+/// routinely carry `"default": null`, `"description": null`, etc.,
+/// so walk the tree and drop any key whose value is JSON `null`.
+func stripSchemaNullValues(_ schema: inout [String: Any]) {
+    for key in Array(schema.keys) {
+        let value = schema[key]
+        if value is NSNull {
+            schema.removeValue(forKey: key)
+        } else if var child = value as? [String: Any] {
+            stripSchemaNullValues(&child)
+            schema[key] = child
+        } else if let arr = value as? [Any] {
+            schema[key] = arr.map { item -> Any in
+                guard var sub = item as? [String: Any] else { return item }
+                stripSchemaNullValues(&sub)
+                return sub
+            }
+        }
+    }
+}
+
 // MARK: - Tool parsing
 
 /// Decode the Rust-supplied tools JSON into `[ToolSpec]`. `ToolSpec`
@@ -494,6 +519,7 @@ func decodeTools(_ json: String?) throws -> [ToolSpec]? {
     return array.map { tool in
         var t = tool
         flattenSchemaUnionTypes(&t)
+        stripSchemaNullValues(&t)
         return t as ToolSpec
     }
 }
