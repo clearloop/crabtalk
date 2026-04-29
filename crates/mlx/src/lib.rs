@@ -24,6 +24,8 @@ pub mod registry;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod ffi;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
+mod gemma_patch;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 mod metallib;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod pool;
@@ -31,8 +33,6 @@ mod pool;
 mod provider;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 mod session;
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-mod gemma_patch;
 
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub use pool::MlxPool;

@@ -91,7 +91,7 @@ fn walk_schema(v: &mut Value) {
             // type: ["string", "null"] → type: "string", nullable: true
             if let Some(Value::Array(arr)) = map.get("type").cloned() {
                 let strs: Vec<&str> = arr.iter().filter_map(Value::as_str).collect();
-                let has_null = strs.iter().any(|s| *s == "null");
+                let has_null = strs.contains(&"null");
                 if let Some(chosen) = strs.iter().find(|s| **s != "null") {
                     map.insert("type".to_string(), Value::String((*chosen).to_string()));
                     if has_null && !map.contains_key("nullable") {
