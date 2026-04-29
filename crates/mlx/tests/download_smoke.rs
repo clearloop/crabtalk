@@ -14,7 +14,8 @@ fn download_small_model() {
         eprintln!("skipping: set MLX_DOWNLOAD_SMOKE=1 to run");
         return;
     }
-    let dir = crabllm_mlx::download_model("mlx-community/SmolLM-135M-Instruct-4bit")
+    let (tx, _rx) = std::sync::mpsc::channel();
+    let dir = crabllm_mlx::download_model("mlx-community/SmolLM-135M-Instruct-4bit", &tx)
         .expect("download should succeed");
     assert!(dir.join("config.json").exists(), "config.json missing");
     assert!(

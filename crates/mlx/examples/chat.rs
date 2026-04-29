@@ -105,7 +105,7 @@ async fn main() {
     if cli.list {
         let models = crabllm_mlx::registry::list();
         eprintln!("{} predefined models:\n", models.len());
-        for m in &models {
+        for m in models {
             let kind = match m.kind {
                 crabllm_mlx::registry::ModelKind::Llm => "llm",
                 crabllm_mlx::registry::ModelKind::Vlm => "vlm",
@@ -150,6 +150,8 @@ async fn main() {
         seed: None,
         user: None,
         reasoning_effort: None,
+        thinking: None,
+        anthropic_max_tokens: None,
         extra: serde_json::Map::new(),
     };
     match provider.chat_completion(&warmup).await {
@@ -196,6 +198,8 @@ async fn main() {
             seed: None,
             user: None,
             reasoning_effort: None,
+            thinking: None,
+            anthropic_max_tokens: None,
             extra: serde_json::Map::new(),
         };
 

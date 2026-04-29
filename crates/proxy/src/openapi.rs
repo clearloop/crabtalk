@@ -7,7 +7,7 @@ use crabllm_core::{
 };
 use utoipa::OpenApi;
 use utoipa::openapi::{
-    ContentBuilder, HttpMethod, InfoBuilder, PathItem, PathsBuilder, Ref, RefOr, Required,
+    ContentBuilder, HttpMethod, InfoBuilder, PathItem, Paths, PathsBuilder, Ref, RefOr, Required,
     ResponseBuilder, Responses, ResponsesBuilder, Tag,
     path::{OperationBuilder, ParameterBuilder, ParameterIn},
     request_body::{RequestBody, RequestBodyBuilder},
@@ -215,8 +215,112 @@ fn empty_ok(desc: &str) -> Responses {
         .build()
 }
 
+/// Spec for the public OpenAI-compatible surface only
+/// (`/v1/chat/completions` through `/v1/usage`). For embedders that put
+/// crabllm behind their own auth and admin layer.
+///
+/// `api_tag` overrides the default `"API"` tag on every operation —
+/// useful when merging into a host spec that groups the gateway under
+/// a different tag name.
+pub fn public(api_tag: Option<&str>) -> utoipa::openapi::OpenApi {
+    let mut doc = base();
+    doc.paths = public_paths();
+    if let Some(tag) = api_tag {
+        retag(&mut doc, tag);
+    }
+    doc
+}
+
+/// Spec for the admin surface only (`/v1/admin/*`, `/v1/budget`,
+/// `/v1/cache`). Embedders that replace the admin surface with their own
+/// will skip this; standalone deployments serve it alongside [`public`].
+pub fn admin() -> utoipa::openapi::OpenApi {
+    let mut doc = base();
+    doc.paths = admin_paths();
+    doc
+}
+
+/// Spec for the infra surface only (`/health`, `/metrics`). Embedders
+/// usually have their own probes and will skip this.
+pub fn infra() -> utoipa::openapi::OpenApi {
+    let mut doc = base();
+    doc.paths = infra_paths();
+    doc
+}
+
+/// Combined spec: [`public`] + [`admin`] + [`infra`]. What standalone
+/// crabllm deployments serve at `/openapi.json`.
 pub fn spec() -> utoipa::openapi::OpenApi {
-    let paths = PathsBuilder::new()
+    let mut doc = base();
+    let mut all = public_paths();
+    for (path, item) in admin_paths().paths {
+        all.paths.insert(path, item);
+    }
+    for (path, item) in infra_paths().paths {
+        all.paths.insert(path, item);
+    }
+    doc.paths = all;
+    doc
+}
+
+/// Shared scaffolding (info, tags, security, components) — every spec
+/// function starts from this and then sets its own paths.
+fn base() -> utoipa::openapi::OpenApi {
+    let mut doc = <Components as OpenApi>::openapi();
+    doc.info = InfoBuilder::new()
+        .title("CrabLLM API")
+        .version(env!("CARGO_PKG_VERSION"))
+        .description(Some("High-performance LLM API gateway"))
+        .build();
+    doc.tags = Some(vec![
+        Tag::new(TAG_API),
+        Tag::new(TAG_ADMIN_KEYS),
+        Tag::new(TAG_ADMIN_PROVIDERS),
+        Tag::new(TAG_ADMIN_USAGE),
+        Tag::new(TAG_INFRA),
+    ]);
+    doc.security = Some(vec![SecurityRequirement::new(
+        "BearerAuth",
+        Vec::<String>::new(),
+    )]);
+
+    let components = doc
+        .components
+        .get_or_insert_with(utoipa::openapi::Components::default);
+    components.security_schemes.insert(
+        "BearerAuth".to_string(),
+        SecurityScheme::Http(HttpBuilder::new().scheme(HttpAuthScheme::Bearer).build()),
+    );
+
+    doc
+}
+
+/// Override every operation's tag (and the doc-level tags list) with a
+/// single name. Used by [`public`] to retag the OpenAI-compatible surface
+/// when an embedder groups it under their own tag.
+fn retag(doc: &mut utoipa::openapi::OpenApi, tag: &str) {
+    for item in doc.paths.paths.values_mut() {
+        for op in [
+            &mut item.get,
+            &mut item.post,
+            &mut item.put,
+            &mut item.patch,
+            &mut item.delete,
+            &mut item.head,
+            &mut item.options,
+            &mut item.trace,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            op.tags = Some(vec![tag.to_string()]);
+        }
+    }
+    doc.tags = Some(vec![Tag::new(tag)]);
+}
+
+fn public_paths() -> Paths {
+    PathsBuilder::new()
         .path(
             "/v1/chat/completions",
             PathItem::new(
@@ -309,6 +413,11 @@ pub fn spec() -> utoipa::openapi::OpenApi {
                     .responses(json_array_ok("UsageEntry", "Usage rows for this key")),
             ),
         )
+        .build()
+}
+
+fn admin_paths() -> Paths {
+    PathsBuilder::new()
         .path(
             "/v1/admin/keys",
             multi(
@@ -442,6 +551,11 @@ pub fn spec() -> utoipa::openapi::OpenApi {
                 op(TAG_ADMIN_USAGE, "Clear response cache").responses(no_content("Cache cleared")),
             ),
         )
+        .build()
+}
+
+fn infra_paths() -> Paths {
+    PathsBuilder::new()
         .path(
             "/health",
             PathItem::new(
@@ -459,36 +573,5 @@ pub fn spec() -> utoipa::openapi::OpenApi {
                 )),
             ),
         )
-        .build();
-
-    let tags = vec![
-        Tag::new(TAG_API),
-        Tag::new(TAG_ADMIN_KEYS),
-        Tag::new(TAG_ADMIN_PROVIDERS),
-        Tag::new(TAG_ADMIN_USAGE),
-        Tag::new(TAG_INFRA),
-    ];
-
-    let mut doc = <Components as OpenApi>::openapi();
-    doc.info = InfoBuilder::new()
-        .title("CrabLLM API")
-        .version(env!("CARGO_PKG_VERSION"))
-        .description(Some("High-performance LLM API gateway"))
-        .build();
-    doc.paths = paths;
-    doc.tags = Some(tags);
-    doc.security = Some(vec![SecurityRequirement::new(
-        "BearerAuth",
-        Vec::<String>::new(),
-    )]);
-
-    let components = doc
-        .components
-        .get_or_insert_with(utoipa::openapi::Components::default);
-    components.security_schemes.insert(
-        "BearerAuth".to_string(),
-        SecurityScheme::Http(HttpBuilder::new().scheme(HttpAuthScheme::Bearer).build()),
-    );
-
-    doc
+        .build()
 }

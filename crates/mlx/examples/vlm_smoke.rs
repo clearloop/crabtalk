@@ -106,6 +106,8 @@ async fn run_once(provider: &MlxProvider, label: &str, url: String) -> Result<()
         seed: None,
         user: None,
         reasoning_effort: None,
+        thinking: None,
+        anthropic_max_tokens: None,
         extra: Default::default(),
     };
 
