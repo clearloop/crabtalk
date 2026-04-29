@@ -328,13 +328,13 @@ fn read_chat_template(model_dir: &Path) -> Option<serde_json::Value> {
     if let Ok(s) = fs::read_to_string(model_dir.join("chat_template.jinja")) {
         return Some(serde_json::Value::String(s));
     }
-    if let Ok(bytes) = fs::read(model_dir.join("chat_template.json")) {
-        if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-            if let Some(t) = v.get("chat_template").cloned() {
-                return Some(t);
-            }
-            return Some(v);
+    if let Ok(bytes) = fs::read(model_dir.join("chat_template.json"))
+        && let Ok(v) = serde_json::from_slice::<serde_json::Value>(&bytes)
+    {
+        if let Some(t) = v.get("chat_template").cloned() {
+            return Some(t);
         }
+        return Some(v);
     }
     let bytes = fs::read(model_dir.join("tokenizer_config.json")).ok()?;
     let v: serde_json::Value = serde_json::from_slice(&bytes).ok()?;

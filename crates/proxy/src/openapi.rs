@@ -309,10 +309,11 @@ fn retag(doc: &mut utoipa::openapi::OpenApi, tag: &str) {
             &mut item.head,
             &mut item.options,
             &mut item.trace,
-        ] {
-            if let Some(op) = op {
-                op.tags = Some(vec![tag.to_string()]);
-            }
+        ]
+        .into_iter()
+        .flatten()
+        {
+            op.tags = Some(vec![tag.to_string()]);
         }
     }
     doc.tags = Some(vec![Tag::new(tag)]);
