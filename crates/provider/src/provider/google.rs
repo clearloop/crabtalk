@@ -2,9 +2,9 @@ use crate::provider::schema;
 use crate::{ByteStream, HttpClient};
 use bytes::{Buf, BytesMut};
 use crabllm_core::{
-    ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice, Delta,
-    Error, FinishReason, FunctionCall, FunctionCallDelta, Message, Role, ToolCall, ToolCallDelta,
-    ToolType, Usage,
+    ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice,
+    ContentBlock, Delta, Error, FinishReason, FunctionCallDelta, Message, Role, ToolCallDelta,
+    ToolResultContent, Usage,
 };
 use futures::stream::{self, Stream};
 use serde::{Deserialize, Serialize};
@@ -189,126 +189,108 @@ struct GeminiUsage {
 // ── Translation ──
 
 fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
-    // Build tool_call_id → function_name index so Tool-role messages can
-    // resolve the function name even when msg.name is None.
+    // Build tool_use id → name index so ToolResult blocks can resolve the
+    // function name for Gemini's functionResponse.
     let mut tc_names = std::collections::HashMap::<&str, &str>::new();
     for msg in &request.messages {
-        if let Some(tool_calls) = &msg.tool_calls {
-            for tc in tool_calls {
-                tc_names.insert(&tc.id, &tc.function.name);
+        for block in &msg.content {
+            if let ContentBlock::ToolUse { id, name, .. } = block {
+                tc_names.insert(id.as_str(), name.as_str());
             }
         }
     }
 
     let mut system_parts = Vec::new();
     let mut contents = Vec::new();
+    let needs_skip_sentinel = is_gemini_3_or_newer(&request.model);
 
     for msg in &request.messages {
         if msg.role == Role::System {
-            if let Some(content) = &msg.content
-                && let Some(s) = content.as_str()
-            {
-                system_parts.push(GeminiPart {
-                    text: Some(s.to_string()),
-                    function_call: None,
-                    function_response: None,
-                    thought_signature: None,
-                });
+            for block in &msg.content {
+                if let ContentBlock::Text { text } = block {
+                    system_parts.push(GeminiPart {
+                        text: Some(text.clone()),
+                        function_call: None,
+                        function_response: None,
+                        thought_signature: None,
+                    });
+                }
             }
-        } else if msg.role == Role::Tool {
-            // Tool result → user message with functionResponse part.
-            // Prefer msg.name, fall back to looking up by tool_call_id.
-            let name = msg
-                .name
-                .clone()
-                .or_else(|| {
-                    msg.tool_call_id
-                        .as_deref()
-                        .and_then(|id| tc_names.get(id).map(|n| n.to_string()))
-                })
-                .unwrap_or_default();
-            let response_val = msg
-                .content
-                .as_ref()
-                .and_then(|c| {
-                    if c.is_object() || c.is_array() {
-                        Some(c.clone())
-                    } else if let Some(s) = c.as_str() {
-                        crabllm_core::json::from_str(s).ok()
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or(serde_json::json!({"result": msg.content.as_ref().and_then(|c| c.as_str()).unwrap_or("")}));
-            contents.push(GeminiContent {
-                role: Some(GeminiRole::User),
-                parts: vec![GeminiPart {
-                    text: None,
-                    function_call: None,
-                    function_response: Some(GeminiFunctionResponse {
-                        name,
-                        response: response_val,
-                    }),
-                    thought_signature: None,
-                }],
-            });
-        } else if msg.role == Role::Assistant
-            && let Some(tool_calls) = &msg.tool_calls
-        {
-            // Assistant message with tool_calls → model message with functionCall parts.
-            let mut parts = Vec::new();
-            if let Some(content) = &msg.content
-                && let Some(s) = content.as_str()
-                && !s.is_empty()
-            {
-                parts.push(GeminiPart {
-                    text: Some(s.to_string()),
-                    function_call: None,
-                    function_response: None,
-                    thought_signature: None,
-                });
-            }
-            let needs_skip_sentinel = is_gemini_3_or_newer(&request.model);
-            for tc in tool_calls {
-                let args = crabllm_core::json::from_str(&tc.function.arguments)
-                    .unwrap_or(serde_json::Value::Object(Default::default()));
-                let signature = extract_signature_from_id(&tc.id)
-                    .map(|s| s.to_string())
-                    .or_else(|| needs_skip_sentinel.then(|| SKIP_VALIDATOR_SIGNATURE.to_string()));
-                parts.push(GeminiPart {
-                    text: None,
-                    function_call: Some(GeminiFunctionCall {
-                        name: tc.function.name.clone(),
-                        args,
-                    }),
-                    function_response: None,
-                    thought_signature: signature,
-                });
-            }
-            contents.push(GeminiContent {
-                role: Some(GeminiRole::Model),
-                parts,
-            });
         } else {
             let role = match msg.role {
                 Role::Assistant => GeminiRole::Model,
                 _ => GeminiRole::User,
             };
-            let text = msg
-                .content
-                .as_ref()
-                .and_then(|c| c.as_str())
-                .unwrap_or("")
-                .to_string();
-            contents.push(GeminiContent {
-                role: Some(role),
-                parts: vec![GeminiPart {
-                    text: Some(text),
-                    function_call: None,
-                    function_response: None,
-                    thought_signature: None,
-                }],
-            });
+            let mut parts = Vec::new();
+            for block in &msg.content {
+                match block {
+                    ContentBlock::Text { text } if !text.is_empty() => {
+                        parts.push(GeminiPart {
+                            text: Some(text.clone()),
+                            function_call: None,
+                            function_response: None,
+                            thought_signature: None,
+                        });
+                    }
+                    ContentBlock::ToolUse { id, name, input } => {
+                        let signature = extract_signature_from_id(id)
+                            .map(|s| s.to_string())
+                            .or_else(|| {
+                                needs_skip_sentinel
+                                    .then(|| SKIP_VALIDATOR_SIGNATURE.to_string())
+                            });
+                        parts.push(GeminiPart {
+                            text: None,
+                            function_call: Some(GeminiFunctionCall {
+                                name: name.clone(),
+                                args: input.clone(),
+                            }),
+                            function_response: None,
+                            thought_signature: signature,
+                        });
+                    }
+                    ContentBlock::ToolResult {
+                        tool_use_id,
+                        name,
+                        content,
+                    } => {
+                        let fn_name = name
+                            .as_deref()
+                            .or_else(|| tc_names.get(tool_use_id.as_str()).copied())
+                            .unwrap_or("")
+                            .to_string();
+                        let text = match content {
+                            ToolResultContent::Text(s) => s.clone(),
+                            ToolResultContent::Blocks(blocks) => blocks
+                                .iter()
+                                .filter_map(|b| match b {
+                                    ContentBlock::Text { text } => Some(text.as_str()),
+                                    _ => None,
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n"),
+                        };
+                        let response_val = crabllm_core::json::from_str(&text)
+                            .unwrap_or(serde_json::json!({"result": text}));
+                        parts.push(GeminiPart {
+                            text: None,
+                            function_call: None,
+                            function_response: Some(GeminiFunctionResponse {
+                                name: fn_name,
+                                response: response_val,
+                            }),
+                            thought_signature: None,
+                        });
+                    }
+                    _ => {}
+                }
+            }
+            if !parts.is_empty() {
+                contents.push(GeminiContent {
+                    role: Some(role),
+                    parts,
+                });
+            }
         }
     }
 
@@ -400,56 +382,43 @@ impl From<GeminiUsage> for Usage {
     }
 }
 
-/// Extract text and tool calls from response candidate parts.
-fn extract_parts(candidate: &GeminiCandidate) -> (String, Vec<ToolCall>) {
-    let mut text = String::new();
-    let mut tool_calls = Vec::new();
+/// Extract content blocks from response candidate parts.
+fn extract_blocks(candidate: &GeminiCandidate) -> Vec<ContentBlock> {
+    let mut blocks = Vec::new();
 
     if let Some(content) = &candidate.content {
         for (i, part) in content.parts.iter().enumerate() {
-            if let Some(t) = &part.text {
-                text.push_str(t);
+            if let Some(t) = &part.text
+                && !t.is_empty()
+            {
+                blocks.push(ContentBlock::Text { text: t.clone() });
             }
             if let Some(fc) = &part.function_call {
                 let base_id = format!("call_{i}");
                 let id = encode_signature_into_id(&base_id, part.thought_signature.as_deref());
-                tool_calls.push(ToolCall {
-                    index: None,
+                blocks.push(ContentBlock::ToolUse {
                     id,
-                    kind: ToolType::Function,
-                    function: FunctionCall {
-                        name: fc.name.clone(),
-                        arguments: crabllm_core::json::to_string(&fc.args).unwrap_or_default(),
-                    },
+                    name: fc.name.clone(),
+                    input: fc.args.clone(),
                 });
             }
         }
     }
 
-    (text, tool_calls)
+    blocks
 }
 
 fn translate_response(resp: GeminiResponse, model: &str) -> ChatCompletionResponse {
-    let (content_text, tool_calls, finish_reason) = resp
+    let (blocks, finish_reason) = resp
         .candidates
         .first()
         .map(|c| {
-            let (text, tcs) = extract_parts(c);
-            (text, tcs, c.finish_reason.as_ref().map(Into::into))
+            (
+                extract_blocks(c),
+                c.finish_reason.as_ref().map(Into::into),
+            )
         })
         .unwrap_or_default();
-
-    let tool_calls_opt = if tool_calls.is_empty() {
-        None
-    } else {
-        Some(tool_calls)
-    };
-
-    let content = if content_text.is_empty() && tool_calls_opt.is_some() {
-        None
-    } else {
-        Some(serde_json::Value::String(content_text))
-    };
 
     ChatCompletionResponse {
         id: String::new(),
@@ -460,12 +429,7 @@ fn translate_response(resp: GeminiResponse, model: &str) -> ChatCompletionRespon
             index: 0,
             message: Message {
                 role: Role::Assistant,
-                content,
-                tool_calls: tool_calls_opt,
-                tool_call_id: None,
-                name: None,
-                reasoning_content: None,
-                extra: Default::default(),
+                content: blocks,
             },
             finish_reason,
             logprobs: None,
@@ -588,11 +552,34 @@ fn gemini_sse_stream(
                         }
                     };
 
-                    let (text, tool_calls) = extract_parts(candidate);
+                    let blocks = extract_blocks(candidate);
                     let finish_reason = candidate.finish_reason.as_ref().map(Into::into);
 
+                    let mut text = String::new();
+                    let mut tool_call_deltas: Vec<ToolCallDelta> = Vec::new();
+                    for block in blocks {
+                        match block {
+                            ContentBlock::Text { text: t } => text.push_str(&t),
+                            ContentBlock::ToolUse { id, name, input } => {
+                                tool_call_deltas.push(ToolCallDelta {
+                                    index: tool_call_deltas.len() as u32,
+                                    id: Some(id),
+                                    kind: Some(crabllm_core::ToolType::Function),
+                                    function: Some(FunctionCallDelta {
+                                        name: Some(name),
+                                        arguments: Some(
+                                            crabllm_core::json::to_string(&input)
+                                                .unwrap_or_default(),
+                                        ),
+                                    }),
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+
                     let has_text = !text.is_empty();
-                    let has_tools = !tool_calls.is_empty();
+                    let has_tools = !tool_call_deltas.is_empty();
 
                     if !has_text && !has_tools && finish_reason.is_none() {
                         buffer.advance(newline_pos + 1);
@@ -603,21 +590,7 @@ fn gemini_sse_stream(
 
                     chunk_idx += 1;
                     let tool_call_deltas = if has_tools {
-                        Some(
-                            tool_calls
-                                .into_iter()
-                                .enumerate()
-                                .map(|(i, tc)| ToolCallDelta {
-                                    index: i as u32,
-                                    id: Some(tc.id),
-                                    kind: Some(ToolType::Function),
-                                    function: Some(FunctionCallDelta {
-                                        name: Some(tc.function.name),
-                                        arguments: Some(tc.function.arguments),
-                                    }),
-                                })
-                                .collect(),
-                        )
+                        Some(tool_call_deltas)
                     } else {
                         None
                     };

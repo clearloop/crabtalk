@@ -17,8 +17,8 @@ use crate::{
 };
 use crabllm_core::{
     BoxStream, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice,
-    ChunkChoice, Delta, Error, FinishReason, FunctionCall, FunctionCallDelta, Message, Provider,
-    Role, ToolCall, ToolCallDelta, ToolType, Usage,
+    ChunkChoice, ContentBlock, Delta, Error, FinishReason, FunctionCall, FunctionCallDelta,
+    Message, Provider, Role, ToolCall, ToolCallDelta, ToolType, Usage,
 };
 use futures::{channel::mpsc, stream::StreamExt};
 use std::{
@@ -166,6 +166,20 @@ impl Provider for MlxProvider {
             FinishReason::ToolCalls
         };
 
+        let mut blocks = Vec::new();
+        if !text.is_empty() {
+            blocks.push(ContentBlock::Text { text });
+        }
+        for tc in tool_calls {
+            let input = crabllm_core::json::from_str(&tc.function.arguments)
+                .unwrap_or(serde_json::Value::Object(Default::default()));
+            blocks.push(ContentBlock::ToolUse {
+                id: tc.id,
+                name: tc.function.name,
+                input,
+            });
+        }
+
         Ok(ChatCompletionResponse {
             id: new_completion_id(),
             object: "chat.completion".to_string(),
@@ -175,16 +189,7 @@ impl Provider for MlxProvider {
                 index: 0,
                 message: Message {
                     role: Role::Assistant,
-                    content: Some(serde_json::Value::String(text)),
-                    tool_calls: if tool_calls.is_empty() {
-                        None
-                    } else {
-                        Some(tool_calls)
-                    },
-                    tool_call_id: None,
-                    name: None,
-                    reasoning_content: None,
-                    extra: serde_json::Map::new(),
+                    content: blocks,
                 },
                 finish_reason: Some(finish_reason),
                 logprobs: None,

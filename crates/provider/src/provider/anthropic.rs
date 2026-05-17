@@ -2,11 +2,11 @@ use crate::provider::schema;
 use crate::{ByteStream, HttpClient};
 use bytes::{Buf, Bytes, BytesMut};
 use crabllm_core::{
-    AnthropicContent, AnthropicContentBlock, AnthropicMessage, AnthropicRequest, AnthropicResponse,
-    AnthropicSystem, AnthropicTool, AnthropicUsage, ChatCompletionChunk, ChatCompletionRequest,
-    ChatCompletionResponse, Choice, ChunkChoice, DEFAULT_MAX_TOKENS, Delta, Error, FinishReason,
-    FunctionCall, FunctionCallDelta, Message, Role, Stop, ThinkingConfig, ToolCall, ToolCallDelta,
-    ToolChoice, ToolResultContent, ToolType, Usage,
+    AnthropicContent, AnthropicMessage, AnthropicRequest, AnthropicResponse, AnthropicSystem,
+    AnthropicTool, AnthropicUsage, ChatCompletionChunk, ChatCompletionRequest,
+    ChatCompletionResponse, Choice, ChunkChoice, ContentBlock, DEFAULT_MAX_TOKENS, Delta, Error,
+    FinishReason, FunctionCallDelta, Message, Role, Stop, ThinkingConfig, ToolCallDelta, ToolChoice,
+    ToolType, Usage,
 };
 use futures::{
     TryStreamExt, pin_mut,
@@ -85,116 +85,15 @@ fn translate_request(request: &ChatCompletionRequest) -> AnthropicRequest {
 
     for msg in &request.messages {
         if msg.role == Role::System {
-            if let Some(content) = &msg.content
-                && let Some(s) = content.as_str()
-            {
-                system_parts.push(s.to_string());
-            }
-        } else if msg.role == Role::Tool {
-            // Tool result → user message with tool_result content block.
-            let content_str = msg
-                .content
-                .as_ref()
-                .map(|c| {
-                    if let Some(s) = c.as_str() {
-                        s.to_string()
-                    } else {
-                        c.to_string()
-                    }
-                })
-                .unwrap_or_default();
-            let tool_use_id = msg.tool_call_id.clone().unwrap_or_default();
-            messages.push(AnthropicMessage {
-                role: "user".to_string(),
-                content: AnthropicContent::Blocks(vec![AnthropicContentBlock::ToolResult {
-                    tool_use_id,
-                    content: ToolResultContent::Text(content_str),
-                }]),
-            });
-        } else if msg.role == Role::Assistant
-            && let Some(tool_calls) = &msg.tool_calls
-        {
-            // Assistant message with tool_calls → content blocks.
-            let mut blocks = Vec::new();
-            if let Some(content) = &msg.content
-                && let Some(s) = content.as_str()
-                && !s.is_empty()
-            {
-                blocks.push(AnthropicContentBlock::Text {
-                    text: s.to_string(),
-                });
-            }
-            for tc in tool_calls {
-                let input = crabllm_core::json::from_str(&tc.function.arguments)
-                    .unwrap_or(serde_json::Value::Object(Default::default()));
-                blocks.push(AnthropicContentBlock::ToolUse {
-                    id: tc.id.clone(),
-                    name: tc.function.name.clone(),
-                    input,
-                });
-            }
-            messages.push(AnthropicMessage {
-                role: "assistant".to_string(),
-                content: AnthropicContent::Blocks(blocks),
-            });
-        } else {
-            let anthropic_content = match msg.content.as_ref() {
-                Some(c) if c.is_array() => {
-                    let mut blocks = Vec::new();
-                    if let Some(parts) = c.as_array() {
-                        for part in parts {
-                            match part.get("type").and_then(|t| t.as_str()) {
-                                Some("text") => {
-                                    if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
-                                        blocks.push(AnthropicContentBlock::Text {
-                                            text: text.to_string(),
-                                        });
-                                    }
-                                }
-                                Some("image_url") => {
-                                    if let Some(url) = part
-                                        .get("image_url")
-                                        .and_then(|iu| iu.get("url"))
-                                        .and_then(|u| u.as_str())
-                                    {
-                                        let source = if let Some(rest) = url.strip_prefix("data:") {
-                                            // data:image/png;base64,<data>
-                                            let (meta, data) = rest.split_once(',').unwrap_or((
-                                                "application/octet-stream;base64",
-                                                rest,
-                                            ));
-                                            let media_type =
-                                                meta.strip_suffix(";base64").unwrap_or(meta);
-                                            serde_json::json!({
-                                                "type": "base64",
-                                                "media_type": media_type,
-                                                "data": data,
-                                            })
-                                        } else {
-                                            serde_json::json!({
-                                                "type": "url",
-                                                "url": url,
-                                            })
-                                        };
-                                        blocks.push(AnthropicContentBlock::Image { source });
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                    }
-                    if blocks.is_empty() {
-                        AnthropicContent::Text(String::new())
-                    } else {
-                        AnthropicContent::Blocks(blocks)
-                    }
+            for block in &msg.content {
+                if let ContentBlock::Text { text } = block {
+                    system_parts.push(text.clone());
                 }
-                Some(c) => AnthropicContent::Text(c.as_str().unwrap_or("").to_string()),
-                None => AnthropicContent::Text(String::new()),
-            };
+            }
+        } else {
             messages.push(AnthropicMessage {
                 role: msg.role.as_str().to_string(),
-                content: anthropic_content,
+                content: AnthropicContent::Blocks(msg.content.clone()),
             });
         }
     }
@@ -310,46 +209,6 @@ fn map_stop_reason(stop_reason: &Option<String>) -> Option<FinishReason> {
 }
 
 fn translate_response(resp: AnthropicResponse) -> ChatCompletionResponse {
-    let mut content_text = String::new();
-    let mut tool_calls = Vec::new();
-    let mut reasoning_content = None;
-
-    for block in resp.content {
-        match block {
-            AnthropicContentBlock::Text { text } => content_text.push_str(&text),
-            AnthropicContentBlock::Thinking { thinking, .. } => {
-                if !thinking.is_empty() {
-                    reasoning_content = Some(thinking);
-                }
-            }
-            AnthropicContentBlock::ToolUse { id, name, input } => {
-                tool_calls.push(ToolCall {
-                    index: None,
-                    id,
-                    kind: ToolType::Function,
-                    function: FunctionCall {
-                        name,
-                        arguments: crabllm_core::json::to_string(&input).unwrap_or_default(),
-                    },
-                });
-            }
-            // Image and ToolResult do not appear in assistant responses.
-            AnthropicContentBlock::Image { .. } | AnthropicContentBlock::ToolResult { .. } => {}
-        }
-    }
-
-    let tool_calls_opt = if tool_calls.is_empty() {
-        None
-    } else {
-        Some(tool_calls)
-    };
-
-    let content = if content_text.is_empty() && tool_calls_opt.is_some() {
-        None
-    } else {
-        Some(serde_json::Value::String(content_text))
-    };
-
     ChatCompletionResponse {
         id: resp.id,
         object: "chat.completion".to_string(),
@@ -359,12 +218,7 @@ fn translate_response(resp: AnthropicResponse) -> ChatCompletionResponse {
             index: 0,
             message: Message {
                 role: Role::Assistant,
-                content,
-                tool_calls: tool_calls_opt,
-                tool_call_id: None,
-                name: None,
-                reasoning_content,
-                extra: Default::default(),
+                content: resp.content,
             },
             finish_reason: map_stop_reason(&resp.stop_reason),
             logprobs: None,
@@ -808,9 +662,7 @@ async fn accumulate_stream(
     let mut id = String::new();
     let mut model = String::new();
     let mut created = 0u64;
-    let mut content = String::new();
-    let mut reasoning = String::new();
-    let mut tool_calls: Vec<ToolCall> = Vec::new();
+    let mut blocks: Vec<ContentBlock> = Vec::new();
     let mut finish_reason = None;
     let mut usage = None;
 
@@ -827,58 +679,63 @@ async fn accumulate_stream(
             if choice.finish_reason.is_some() {
                 finish_reason.clone_from(&choice.finish_reason);
             }
-            if let Some(ref text) = choice.delta.content {
-                content.push_str(text);
+            if let Some(ref text) = choice.delta.reasoning_content
+                && !text.is_empty()
+            {
+                match blocks.last_mut() {
+                    Some(ContentBlock::Thinking { thinking, .. }) => thinking.push_str(text),
+                    _ => blocks.push(ContentBlock::Thinking {
+                        thinking: text.clone(),
+                        signature: None,
+                    }),
+                }
             }
-            if let Some(ref text) = choice.delta.reasoning_content {
-                reasoning.push_str(text);
+            if let Some(ref text) = choice.delta.content
+                && !text.is_empty()
+            {
+                match blocks.last_mut() {
+                    Some(ContentBlock::Text { text: existing }) => existing.push_str(text),
+                    _ => blocks.push(ContentBlock::Text { text: text.clone() }),
+                }
             }
             if let Some(ref deltas) = choice.delta.tool_calls {
                 for delta in deltas {
-                    let idx = delta.index as usize;
-                    if idx >= tool_calls.len() {
-                        tool_calls.push(ToolCall {
-                            index: None,
-                            id: delta.id.clone().unwrap_or_default(),
-                            kind: delta.kind.unwrap_or_default(),
-                            function: FunctionCall {
-                                name: delta
-                                    .function
-                                    .as_ref()
-                                    .and_then(|f| f.name.clone())
-                                    .unwrap_or_default(),
-                                arguments: delta
-                                    .function
-                                    .as_ref()
-                                    .and_then(|f| f.arguments.clone())
-                                    .unwrap_or_default(),
-                            },
+                    let has_id = delta.id.as_ref().is_some_and(|id| !id.is_empty());
+                    if has_id {
+                        let tc_id = delta.id.clone().unwrap_or_default();
+                        let name = delta
+                            .function
+                            .as_ref()
+                            .and_then(|f| f.name.clone())
+                            .unwrap_or_default();
+                        let args = delta
+                            .function
+                            .as_ref()
+                            .and_then(|f| f.arguments.clone())
+                            .unwrap_or_default();
+                        blocks.push(ContentBlock::ToolUse {
+                            id: tc_id,
+                            name,
+                            input: crabllm_core::json::from_str(&args)
+                                .unwrap_or(serde_json::Value::Object(Default::default())),
                         });
                     } else if let Some(ref f) = delta.function
                         && let Some(ref args) = f.arguments
                     {
-                        tool_calls[idx].function.arguments.push_str(args);
+                        if let Some(ContentBlock::ToolUse { input, .. }) = blocks.last_mut() {
+                            if let serde_json::Value::Object(_) = input {
+                                let existing = crabllm_core::json::to_string(input)
+                                    .unwrap_or_default();
+                                let combined = format!("{existing}{args}");
+                                *input = crabllm_core::json::from_str(&combined)
+                                    .unwrap_or(serde_json::Value::Object(Default::default()));
+                            }
+                        }
                     }
                 }
             }
         }
     }
-
-    let tool_calls_opt = if tool_calls.is_empty() {
-        None
-    } else {
-        Some(tool_calls)
-    };
-    let msg_content = if content.is_empty() && tool_calls_opt.is_some() {
-        None
-    } else {
-        Some(serde_json::Value::String(content))
-    };
-    let reasoning_content = if reasoning.is_empty() {
-        None
-    } else {
-        Some(reasoning)
-    };
 
     Ok(ChatCompletionResponse {
         id,
@@ -889,12 +746,7 @@ async fn accumulate_stream(
             index: 0,
             message: Message {
                 role: Role::Assistant,
-                content: msg_content,
-                tool_calls: tool_calls_opt,
-                tool_call_id: None,
-                name: None,
-                reasoning_content,
-                extra: Default::default(),
+                content: blocks,
             },
             finish_reason,
             logprobs: None,

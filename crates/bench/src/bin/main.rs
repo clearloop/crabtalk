@@ -182,17 +182,7 @@ fn canned_chat_response() -> ChatCompletionResponse {
         model: "bench-chat".into(),
         choices: vec![Choice {
             index: 0,
-            message: Message {
-                role: Role::Assistant,
-                content: Some(serde_json::Value::String(
-                    "This is a benchmark response.".into(),
-                )),
-                tool_calls: None,
-                tool_call_id: None,
-                name: None,
-                reasoning_content: None,
-                extra: Default::default(),
-            },
+            message: Message::assistant("This is a benchmark response."),
             finish_reason: Some(FinishReason::Stop),
             logprobs: None,
         }],

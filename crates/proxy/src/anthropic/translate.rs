@@ -16,8 +16,7 @@
 use crabllm_core::{
     AnthropicContent, AnthropicContentBlock, AnthropicMessage, AnthropicRequest, AnthropicResponse,
     AnthropicSystem, AnthropicTool, AnthropicUsage, ChatCompletionRequest, ChatCompletionResponse,
-    Error, FinishReason, FunctionCall, FunctionDef, Message, Role, Stop, Tool, ToolCall,
-    ToolChoice, ToolResultContent, ToolType, Usage,
+    Error, FinishReason, FunctionDef, Message, Role, Stop, Tool, ToolChoice, ToolType, Usage,
 };
 
 pub fn to_chat_completion(req: AnthropicRequest) -> ChatCompletionRequest {
@@ -79,159 +78,19 @@ pub fn to_chat_completion(req: AnthropicRequest) -> ChatCompletionRequest {
 }
 
 fn append_message(out: &mut Vec<Message>, msg: AnthropicMessage) {
-    let is_assistant = msg.role == "assistant";
-
+    let role = match msg.role.as_str() {
+        "assistant" => Role::Assistant,
+        "user" => Role::User,
+        _ => Role::Custom(msg.role),
+    };
     let blocks = match msg.content {
-        AnthropicContent::Text(s) => {
-            out.push(if is_assistant {
-                Message::assistant(s)
-            } else {
-                Message::user(s)
-            });
-            return;
-        }
+        AnthropicContent::Text(s) => vec![AnthropicContentBlock::Text { text: s }],
         AnthropicContent::Blocks(b) => b,
     };
-
-    if is_assistant {
-        out.push(assistant_from_blocks(blocks));
-    } else {
-        append_user_blocks(out, blocks);
-    }
-}
-
-/// Collapse an assistant block list into a single `Message`.
-///
-/// Anthropic assistant turns may carry interleaved thinking, text, and tool_use
-/// blocks. OpenAI's format has a flat `content` string + `tool_calls` array +
-/// `reasoning_content`, so we concatenate text, collect tool_use into
-/// tool_calls, and stash any thinking into reasoning_content.
-fn assistant_from_blocks(blocks: Vec<AnthropicContentBlock>) -> Message {
-    let mut text = String::new();
-    let mut tool_calls: Vec<ToolCall> = Vec::new();
-    let mut reasoning = String::new();
-
-    for block in blocks {
-        match block {
-            AnthropicContentBlock::Text { text: t } => text.push_str(&t),
-            AnthropicContentBlock::Thinking { thinking, .. } => reasoning.push_str(&thinking),
-            AnthropicContentBlock::ToolUse { id, name, input } => {
-                tool_calls.push(ToolCall {
-                    index: None,
-                    id,
-                    kind: ToolType::Function,
-                    function: FunctionCall {
-                        name,
-                        arguments: crabllm_core::json::to_string(&input)
-                            .unwrap_or_else(|_| "{}".into()),
-                    },
-                });
-            }
-            // Image/ToolResult are not valid on assistant turns.
-            AnthropicContentBlock::Image { .. } | AnthropicContentBlock::ToolResult { .. } => {}
-        }
-    }
-
-    let content = if text.is_empty() && !tool_calls.is_empty() {
-        None
-    } else {
-        Some(serde_json::Value::String(text))
-    };
-
-    Message {
-        role: Role::Assistant,
-        content,
-        tool_calls: if tool_calls.is_empty() {
-            None
-        } else {
-            Some(tool_calls)
-        },
-        tool_call_id: None,
-        name: None,
-        reasoning_content: if reasoning.is_empty() {
-            None
-        } else {
-            Some(reasoning)
-        },
-        extra: serde_json::Map::new(),
-    }
-}
-
-/// User turns may interleave text/image content and tool_result blocks. OpenAI
-/// splits these into distinct messages: a user message for text/image parts
-/// and a tool message per tool_result. Emit in original order so tool results
-/// stay positioned correctly relative to any follow-up user text.
-fn append_user_blocks(out: &mut Vec<Message>, blocks: Vec<AnthropicContentBlock>) {
-    let mut user_parts: Vec<serde_json::Value> = Vec::new();
-
-    for block in blocks {
-        match block {
-            AnthropicContentBlock::Text { text } => {
-                user_parts.push(serde_json::json!({"type": "text", "text": text}));
-            }
-            AnthropicContentBlock::Image { source } => {
-                if let Some(url) = image_source_to_url(&source) {
-                    user_parts.push(serde_json::json!({
-                        "type": "image_url",
-                        "image_url": {"url": url},
-                    }));
-                }
-            }
-            AnthropicContentBlock::ToolResult {
-                tool_use_id,
-                content,
-            } => {
-                flush_user_parts(out, &mut user_parts);
-                out.push(Message {
-                    role: Role::Tool,
-                    content: Some(serde_json::Value::String(tool_result_text(content))),
-                    tool_calls: None,
-                    tool_call_id: Some(tool_use_id),
-                    name: None,
-                    reasoning_content: None,
-                    extra: serde_json::Map::new(),
-                });
-            }
-            // Thinking/ToolUse are not valid on user turns.
-            AnthropicContentBlock::Thinking { .. } | AnthropicContentBlock::ToolUse { .. } => {}
-        }
-    }
-
-    flush_user_parts(out, &mut user_parts);
-}
-
-fn flush_user_parts(out: &mut Vec<Message>, parts: &mut Vec<serde_json::Value>) {
-    if parts.is_empty() {
-        return;
-    }
-    // If the only part is a text part, collapse to a plain string content so
-    // the OpenAI provider sees the simpler `content: "..."` shape.
-    let content =
-        if parts.len() == 1 && parts[0].get("type").and_then(|t| t.as_str()) == Some("text") {
-            parts[0]
-                .get("text")
-                .cloned()
-                .unwrap_or(serde_json::Value::String(String::new()))
-        } else {
-            serde_json::Value::Array(std::mem::take(parts))
-        };
-    parts.clear();
     out.push(Message {
-        role: Role::User,
-        content: Some(content),
-        tool_calls: None,
-        tool_call_id: None,
-        name: None,
-        reasoning_content: None,
-        extra: serde_json::Map::new(),
+        role,
+        content: blocks,
     });
-}
-
-fn tool_result_text(content: ToolResultContent) -> String {
-    match content {
-        ToolResultContent::Text(s) => s,
-        ToolResultContent::Blocks(blocks) => flatten_text_blocks(&blocks),
-    }
 }
 
 fn flatten_text_blocks(blocks: &[AnthropicContentBlock]) -> String {
@@ -245,22 +104,6 @@ fn flatten_text_blocks(blocks: &[AnthropicContentBlock]) -> String {
         }
     }
     out
-}
-
-fn image_source_to_url(source: &serde_json::Value) -> Option<String> {
-    let kind = source.get("type").and_then(|t| t.as_str())?;
-    match kind {
-        "base64" => {
-            let media_type = source.get("media_type").and_then(|t| t.as_str())?;
-            let data = source.get("data").and_then(|t| t.as_str())?;
-            Some(format!("data:{media_type};base64,{data}"))
-        }
-        "url" => source
-            .get("url")
-            .and_then(|u| u.as_str())
-            .map(str::to_string),
-        _ => None,
-    }
 }
 
 fn convert_tool(t: AnthropicTool) -> Tool {
@@ -319,7 +162,12 @@ pub fn from_chat_completion(resp: ChatCompletionResponse) -> Result<AnthropicRes
         .ok_or_else(|| Error::Internal("provider returned no usage".into()))?;
 
     let stop_reason = choice.finish_reason.as_ref().map(finish_reason_to_stop);
-    let content = message_to_blocks(choice.message);
+    let mut content = choice.message.content;
+    if content.is_empty() {
+        content.push(AnthropicContentBlock::Text {
+            text: String::new(),
+        });
+    }
 
     Ok(AnthropicResponse {
         id: resp.id,
@@ -331,49 +179,6 @@ pub fn from_chat_completion(resp: ChatCompletionResponse) -> Result<AnthropicRes
         stop_sequence: None,
         usage: usage_to_anthropic(usage),
     })
-}
-
-fn message_to_blocks(msg: Message) -> Vec<AnthropicContentBlock> {
-    let mut blocks = Vec::new();
-
-    if let Some(reasoning) = msg.reasoning_content
-        && !reasoning.is_empty()
-    {
-        blocks.push(AnthropicContentBlock::Thinking {
-            thinking: reasoning,
-            signature: None,
-        });
-    }
-
-    if let Some(text) = msg.content.as_ref().and_then(|v| v.as_str())
-        && !text.is_empty()
-    {
-        blocks.push(AnthropicContentBlock::Text {
-            text: text.to_string(),
-        });
-    }
-
-    if let Some(tool_calls) = msg.tool_calls {
-        for tc in tool_calls {
-            let input = crabllm_core::json::from_str(&tc.function.arguments)
-                .unwrap_or(serde_json::Value::Object(Default::default()));
-            blocks.push(AnthropicContentBlock::ToolUse {
-                id: tc.id,
-                name: tc.function.name,
-                input,
-            });
-        }
-    }
-
-    // Anthropic responses always carry at least one block; emit an empty text
-    // block rather than a bare empty array so SDKs don't choke.
-    if blocks.is_empty() {
-        blocks.push(AnthropicContentBlock::Text {
-            text: String::new(),
-        });
-    }
-
-    blocks
 }
 
 fn finish_reason_to_stop(reason: &FinishReason) -> String {

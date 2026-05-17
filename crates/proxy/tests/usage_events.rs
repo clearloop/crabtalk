@@ -10,8 +10,8 @@ use axum::{
     http::{Request, StatusCode},
 };
 use crabllm_core::{
-    BoxFuture, BoxStream, ChatCompletionRequest, ChatCompletionResponse, Choice, Error,
-    FinishReason, GatewayConfig, KvPairs, Message, Prefix, Provider, Role, Storage, Usage,
+    BoxFuture, BoxStream, ChatCompletionRequest, ChatCompletionResponse, Choice, ContentBlock,
+    Error, FinishReason, GatewayConfig, KvPairs, Message, Prefix, Provider, Role, Storage, Usage,
 };
 use crabllm_provider::{Deployment, ProviderRegistry};
 use crabllm_proxy::{AppState, UsageEvent, router};
@@ -39,12 +39,7 @@ impl Provider for FakeProvider {
                 index: 0,
                 message: Message {
                     role: Role::Assistant,
-                    content: Some(serde_json::Value::String("hi".into())),
-                    tool_calls: None,
-                    tool_call_id: None,
-                    name: None,
-                    reasoning_content: None,
-                    extra: Default::default(),
+                    content: vec![ContentBlock::Text { text: "hi".into() }],
                 },
                 finish_reason: Some(FinishReason::Stop),
                 logprobs: None,
