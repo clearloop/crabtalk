@@ -236,8 +236,7 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
                         let signature = extract_signature_from_id(id)
                             .map(|s| s.to_string())
                             .or_else(|| {
-                                needs_skip_sentinel
-                                    .then(|| SKIP_VALIDATOR_SIGNATURE.to_string())
+                                needs_skip_sentinel.then(|| SKIP_VALIDATOR_SIGNATURE.to_string())
                             });
                         parts.push(GeminiPart {
                             text: None,
@@ -412,12 +411,7 @@ fn translate_response(resp: GeminiResponse, model: &str) -> ChatCompletionRespon
     let (blocks, finish_reason) = resp
         .candidates
         .first()
-        .map(|c| {
-            (
-                extract_blocks(c),
-                c.finish_reason.as_ref().map(Into::into),
-            )
-        })
+        .map(|c| (extract_blocks(c), c.finish_reason.as_ref().map(Into::into)))
         .unwrap_or_default();
 
     ChatCompletionResponse {

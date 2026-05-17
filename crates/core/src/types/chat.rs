@@ -254,21 +254,27 @@ impl Message {
     pub fn user(content: impl Into<String>) -> Self {
         Self {
             role: Role::User,
-            content: vec![ContentBlock::Text { text: content.into() }],
+            content: vec![ContentBlock::Text {
+                text: content.into(),
+            }],
         }
     }
 
     pub fn assistant(content: impl Into<String>) -> Self {
         Self {
             role: Role::Assistant,
-            content: vec![ContentBlock::Text { text: content.into() }],
+            content: vec![ContentBlock::Text {
+                text: content.into(),
+            }],
         }
     }
 
     pub fn system(content: impl Into<String>) -> Self {
         Self {
             role: Role::System,
-            content: vec![ContentBlock::Text { text: content.into() }],
+            content: vec![ContentBlock::Text {
+                text: content.into(),
+            }],
         }
     }
 

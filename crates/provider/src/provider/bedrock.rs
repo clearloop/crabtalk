@@ -176,13 +176,11 @@ fn translate_request(request: &ChatCompletionRequest) -> ConverseRequest {
                 .iter()
                 .filter_map(|b| match b {
                     CoreContentBlock::Text { text } => Some(ContentBlock::Text(text.clone())),
-                    CoreContentBlock::ToolUse { id, name, input } => {
-                        Some(ContentBlock::ToolUse {
-                            tool_use_id: id.clone(),
-                            name: name.clone(),
-                            input: input.clone(),
-                        })
-                    }
+                    CoreContentBlock::ToolUse { id, name, input } => Some(ContentBlock::ToolUse {
+                        tool_use_id: id.clone(),
+                        name: name.clone(),
+                        input: input.clone(),
+                    }),
                     CoreContentBlock::ToolResult {
                         tool_use_id,
                         content,
@@ -190,16 +188,14 @@ fn translate_request(request: &ChatCompletionRequest) -> ConverseRequest {
                     } => {
                         let text = match content {
                             crabllm_core::ToolResultContent::Text(s) => s.clone(),
-                            crabllm_core::ToolResultContent::Blocks(blocks) => {
-                                blocks
-                                    .iter()
-                                    .filter_map(|b| match b {
-                                        CoreContentBlock::Text { text } => Some(text.as_str()),
-                                        _ => None,
-                                    })
-                                    .collect::<Vec<_>>()
-                                    .join("\n")
-                            }
+                            crabllm_core::ToolResultContent::Blocks(blocks) => blocks
+                                .iter()
+                                .filter_map(|b| match b {
+                                    CoreContentBlock::Text { text } => Some(text.as_str()),
+                                    _ => None,
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n"),
                         };
                         Some(ContentBlock::ToolResult {
                             tool_use_id: tool_use_id.clone(),

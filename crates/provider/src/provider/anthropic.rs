@@ -5,13 +5,10 @@ use crabllm_core::{
     AnthropicContent, AnthropicMessage, AnthropicRequest, AnthropicResponse, AnthropicSystem,
     AnthropicTool, AnthropicUsage, ChatCompletionChunk, ChatCompletionRequest,
     ChatCompletionResponse, Choice, ChunkChoice, ContentBlock, DEFAULT_MAX_TOKENS, Delta, Error,
-    FinishReason, FunctionCallDelta, Message, Role, Stop, ThinkingConfig, ToolCallDelta, ToolChoice,
-    ToolType, Usage,
+    FinishReason, FunctionCallDelta, Message, Role, Stop, ThinkingConfig, ToolCallDelta,
+    ToolChoice, ToolType, Usage,
 };
-use futures::{
-    TryStreamExt, pin_mut,
-    stream::{self, Stream},
-};
+use futures::stream::{self, Stream};
 use serde::Deserialize;
 
 const BASE_URL: &str = "https://api.anthropic.com/v1";
@@ -288,10 +285,10 @@ pub async fn chat_completion(
     api_key: &str,
     request: &ChatCompletionRequest,
 ) -> Result<ChatCompletionResponse, Error> {
-    // OAuth tokens must use the streaming endpoint.
     if is_oauth_token(api_key) {
-        let stream = chat_completion_stream(client, api_key, request, &request.model).await?;
-        return accumulate_stream(stream).await;
+        return Err(Error::Internal(
+            "OAuth tokens only support streaming; set stream: true".into(),
+        ));
     }
 
     let anthropic_req = translate_request(request);
@@ -651,107 +648,3 @@ fn anthropic_sse_stream(
     )
 }
 
-/// Collect a streaming response into a single [`ChatCompletionResponse`].
-///
-/// Assumes at least one chunk (Anthropic always sends `message_start`).
-async fn accumulate_stream(
-    stream: impl Stream<Item = Result<ChatCompletionChunk, Error>>,
-) -> Result<ChatCompletionResponse, Error> {
-    pin_mut!(stream);
-
-    let mut id = String::new();
-    let mut model = String::new();
-    let mut created = 0u64;
-    let mut blocks: Vec<ContentBlock> = Vec::new();
-    let mut finish_reason = None;
-    let mut usage = None;
-
-    while let Some(chunk) = stream.try_next().await? {
-        if id.is_empty() {
-            id = chunk.id;
-            model = chunk.model;
-            created = chunk.created;
-        }
-        if chunk.usage.is_some() {
-            usage = chunk.usage;
-        }
-        for choice in &chunk.choices {
-            if choice.finish_reason.is_some() {
-                finish_reason.clone_from(&choice.finish_reason);
-            }
-            if let Some(ref text) = choice.delta.reasoning_content
-                && !text.is_empty()
-            {
-                match blocks.last_mut() {
-                    Some(ContentBlock::Thinking { thinking, .. }) => thinking.push_str(text),
-                    _ => blocks.push(ContentBlock::Thinking {
-                        thinking: text.clone(),
-                        signature: None,
-                    }),
-                }
-            }
-            if let Some(ref text) = choice.delta.content
-                && !text.is_empty()
-            {
-                match blocks.last_mut() {
-                    Some(ContentBlock::Text { text: existing }) => existing.push_str(text),
-                    _ => blocks.push(ContentBlock::Text { text: text.clone() }),
-                }
-            }
-            if let Some(ref deltas) = choice.delta.tool_calls {
-                for delta in deltas {
-                    let has_id = delta.id.as_ref().is_some_and(|id| !id.is_empty());
-                    if has_id {
-                        let tc_id = delta.id.clone().unwrap_or_default();
-                        let name = delta
-                            .function
-                            .as_ref()
-                            .and_then(|f| f.name.clone())
-                            .unwrap_or_default();
-                        let args = delta
-                            .function
-                            .as_ref()
-                            .and_then(|f| f.arguments.clone())
-                            .unwrap_or_default();
-                        blocks.push(ContentBlock::ToolUse {
-                            id: tc_id,
-                            name,
-                            input: crabllm_core::json::from_str(&args)
-                                .unwrap_or(serde_json::Value::Object(Default::default())),
-                        });
-                    } else if let Some(ref f) = delta.function
-                        && let Some(ref args) = f.arguments
-                    {
-                        if let Some(ContentBlock::ToolUse { input, .. }) = blocks.last_mut() {
-                            if let serde_json::Value::Object(_) = input {
-                                let existing = crabllm_core::json::to_string(input)
-                                    .unwrap_or_default();
-                                let combined = format!("{existing}{args}");
-                                *input = crabllm_core::json::from_str(&combined)
-                                    .unwrap_or(serde_json::Value::Object(Default::default()));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(ChatCompletionResponse {
-        id,
-        object: "chat.completion".to_string(),
-        created,
-        model,
-        choices: vec![Choice {
-            index: 0,
-            message: Message {
-                role: Role::Assistant,
-                content: blocks,
-            },
-            finish_reason,
-            logprobs: None,
-        }],
-        usage,
-        system_fingerprint: None,
-    })
-}
