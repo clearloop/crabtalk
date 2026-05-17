@@ -37,7 +37,11 @@ pub enum RemoteProvider {
         api_key: String,
     },
     /// Anthropic Messages API. Requires request/response translation.
-    Anthropic { client: HttpClient, api_key: String },
+    Anthropic {
+        client: HttpClient,
+        base_url: String,
+        api_key: String,
+    },
     /// Google Gemini API. Requires request/response translation.
     Google { client: HttpClient, api_key: String },
     /// AWS Bedrock. Requires SigV4 signing + translation.
@@ -69,8 +73,8 @@ pub fn make_client() -> HttpClient {
 ///
 /// Only the OpenAI-shaped endpoints are stripped: `/chat/completions`,
 /// `/embeddings`, `/audio/transcriptions`, `/audio/speech`,
-/// `/images/generations`. Anthropic, Google, and Bedrock don't take a
-/// `base_url` field at all, so this function is never called for them.
+/// `/images/generations`. Anthropic appends `/messages` itself, so
+/// stripping is not needed there.
 fn normalize_base_url(url: &str) -> String {
     let url = url.trim_end_matches('/');
     for suffix in [
@@ -112,6 +116,10 @@ impl RemoteProvider {
             },
             ProviderKind::Anthropic => RemoteProvider::Anthropic {
                 client,
+                base_url: config
+                    .base_url
+                    .clone()
+                    .unwrap_or_else(|| provider::anthropic::DEFAULT_BASE_URL.to_string()),
                 api_key: config.api_key.clone().unwrap_or_default(),
             },
             ProviderKind::Google => RemoteProvider::Google {
@@ -198,9 +206,11 @@ impl Provider for RemoteProvider {
                 base_url,
                 api_key,
             } => provider::openai::chat_completion(client, base_url, api_key, request).await,
-            RemoteProvider::Anthropic { client, api_key } => {
-                provider::anthropic::chat_completion(client, api_key, request).await
-            }
+            RemoteProvider::Anthropic {
+                client,
+                base_url,
+                api_key,
+            } => provider::anthropic::chat_completion(client, base_url, api_key, request).await,
             RemoteProvider::Google { client, api_key } => {
                 provider::google::chat_completion(client, api_key, request).await
             }
@@ -243,12 +253,13 @@ impl Provider for RemoteProvider {
                         .await?;
                 Ok(s.boxed())
             }
-            RemoteProvider::Anthropic { client, api_key } => {
+            RemoteProvider::Anthropic {
+                client,
+                base_url,
+                api_key,
+            } => {
                 let s = provider::anthropic::chat_completion_stream(
-                    client,
-                    api_key,
-                    request,
-                    &request.model,
+                    client, base_url, api_key, request, &request.model,
                 )
                 .await?;
                 Ok(s.boxed())
@@ -469,8 +480,13 @@ impl Provider for RemoteProvider {
 
     async fn anthropic_messages_raw(&self, raw_body: Bytes) -> Result<Bytes, Error> {
         match self {
-            RemoteProvider::Anthropic { client, api_key } => {
-                provider::anthropic::anthropic_messages_raw(client, api_key, raw_body).await
+            RemoteProvider::Anthropic {
+                client,
+                base_url,
+                api_key,
+            } => {
+                provider::anthropic::anthropic_messages_raw(client, base_url, api_key, raw_body)
+                    .await
             }
             _ => Err(Error::not_implemented("anthropic_messages_raw")),
         }

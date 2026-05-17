@@ -11,7 +11,7 @@ use crabllm_core::{
 use futures::stream::{self, Stream};
 use serde::Deserialize;
 
-const BASE_URL: &str = "https://api.anthropic.com/v1";
+pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com/v1";
 const OAUTH_TOKEN_PREFIX: &str = "sk-ant-oat";
 const OAUTH_BETA: &str = "oauth-2025-04-20";
 
@@ -252,10 +252,11 @@ fn auth_headers(api_key: &str) -> Vec<(&'static str, String)> {
 /// returning the response bytes without deserialization.
 pub async fn anthropic_messages_raw(
     client: &HttpClient,
+    base_url: &str,
     api_key: &str,
     raw_body: Bytes,
 ) -> Result<Bytes, Error> {
-    let url = format!("{BASE_URL}/messages");
+    let url = format!("{}/messages", base_url.trim_end_matches('/'));
     let auth = auth_headers(api_key);
     let mut headers: Vec<(&str, &str)> = vec![
         ("anthropic-version", "2023-06-01"),
@@ -282,6 +283,7 @@ pub async fn anthropic_messages_raw(
 
 pub async fn chat_completion(
     client: &HttpClient,
+    base_url: &str,
     api_key: &str,
     request: &ChatCompletionRequest,
 ) -> Result<ChatCompletionResponse, Error> {
@@ -292,7 +294,7 @@ pub async fn chat_completion(
     }
 
     let anthropic_req = translate_request(request);
-    let url = format!("{BASE_URL}/messages");
+    let url = format!("{}/messages", base_url.trim_end_matches('/'));
 
     let body =
         crabllm_core::json::to_vec(&anthropic_req).map_err(|e| Error::Internal(e.to_string()))?;
@@ -328,13 +330,14 @@ pub async fn chat_completion(
 
 pub async fn chat_completion_stream(
     client: &HttpClient,
+    base_url: &str,
     api_key: &str,
     request: &ChatCompletionRequest,
     model: &str,
 ) -> Result<impl Stream<Item = Result<ChatCompletionChunk, Error>> + use<>, Error> {
     let mut anthropic_req = translate_request(request);
     anthropic_req.stream = Some(true);
-    let url = format!("{BASE_URL}/messages");
+    let url = format!("{}/messages", base_url.trim_end_matches('/'));
 
     let body =
         crabllm_core::json::to_vec(&anthropic_req).map_err(|e| Error::Internal(e.to_string()))?;
