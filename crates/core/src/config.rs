@@ -113,6 +113,7 @@ pub enum ProviderKind {
     #[default]
     Openai,
     Anthropic,
+    Deepseek,
     Google,
     Bedrock,
     Ollama,
@@ -127,6 +128,7 @@ impl ProviderKind {
         match self {
             Self::Openai => "openai",
             Self::Anthropic => "anthropic",
+            Self::Deepseek => "deepseek",
             Self::Google => "google",
             Self::Bedrock => "bedrock",
             Self::Ollama => "ollama",
@@ -159,6 +161,7 @@ impl<'de> serde::Deserialize<'de> for ProviderKind {
         Ok(match s.as_str() {
             "openai" => Self::Openai,
             "anthropic" => Self::Anthropic,
+            "deepseek" => Self::Deepseek,
             "google" => Self::Google,
             "bedrock" => Self::Bedrock,
             "ollama" => Self::Ollama,
@@ -175,8 +178,8 @@ impl ProviderConfig {
     /// or if `base_url` contains "anthropic". Otherwise returns the
     /// configured kind.
     pub fn effective_kind(&self) -> ProviderKind {
-        if self.kind == ProviderKind::Anthropic {
-            return ProviderKind::Anthropic;
+        if self.kind != ProviderKind::Openai {
+            return self.kind.clone();
         }
         if let Some(url) = &self.base_url
             && url.contains("anthropic")

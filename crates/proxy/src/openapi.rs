@@ -1,9 +1,11 @@
 use crabllm_core::{
-    AudioSpeechRequest, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice,
-    ChunkChoice, CompletionTokensDetails, Delta, Embedding, EmbeddingInput, EmbeddingRequest,
-    EmbeddingResponse, EmbeddingUsage, FinishReason, FunctionCall, FunctionCallDelta, FunctionDef,
-    ImageRequest, KeyRateLimit, Message, Model, ModelList, PricingConfig, ProviderKind, Role, Stop,
-    Tool, ToolCall, ToolCallDelta, ToolChoice, ToolType, Usage,
+    AnthropicContent, AnthropicMessage, AnthropicRequest, AnthropicResponse, AnthropicSystem,
+    AnthropicTool, AnthropicUsage, AudioSpeechRequest, ChatCompletionChunk,
+    ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice, CompletionTokensDetails,
+    Delta, Embedding, EmbeddingInput, EmbeddingRequest, EmbeddingResponse, EmbeddingUsage,
+    FinishReason, FunctionCall, FunctionCallDelta, FunctionDef, ImageRequest, KeyRateLimit,
+    Message, Model, ModelList, PricingConfig, ProviderKind, Role, Stop, ThinkingConfig, Tool,
+    ToolCall, ToolCallDelta, ToolChoice, ToolType, Usage,
 };
 use utoipa::OpenApi;
 use utoipa::openapi::{
@@ -47,6 +49,14 @@ const TAG_INFRA: &str = "Infrastructure";
     FinishReason,
     ToolChoice,
     Stop,
+    AnthropicRequest,
+    AnthropicResponse,
+    AnthropicMessage,
+    AnthropicContent,
+    AnthropicSystem,
+    AnthropicTool,
+    AnthropicUsage,
+    ThinkingConfig,
     EmbeddingRequest,
     EmbeddingResponse,
     Embedding,
@@ -341,10 +351,16 @@ fn public_paths() -> Paths {
             "/v1/messages",
             PathItem::new(
                 HttpMethod::Post,
-                op(TAG_API, "Create a message (Anthropic format)").description(Some(
-                    "Anthropic-style messages endpoint. Body and response follow \
+                op(TAG_API, "Create a message (Anthropic format)")
+                    .description(Some(
+                        "Anthropic-style messages endpoint. Body and response follow \
                          the Anthropic Messages API; SSE is returned when stream=true.",
-                )),
+                    ))
+                    .request_body(Some(json_body("AnthropicRequest")))
+                    .responses(json_ok(
+                        "AnthropicResponse",
+                        "Message response (or SSE stream when stream=true)",
+                    )),
             ),
         )
         .path(

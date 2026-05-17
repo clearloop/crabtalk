@@ -13,6 +13,7 @@ pub const DEFAULT_MAX_TOKENS: u32 = 4096;
 pub type AnthropicContentBlock = ContentBlock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ThinkingConfig {
     #[serde(rename = "type")]
     pub kind: String,
@@ -21,6 +22,7 @@ pub struct ThinkingConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct AnthropicRequest {
     pub model: String,
     pub messages: Vec<AnthropicMessage>,
@@ -36,6 +38,7 @@ pub struct AnthropicRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<AnthropicTool>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Object))]
     pub tool_choice: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_sequences: Option<Vec<String>>,
@@ -45,6 +48,7 @@ pub struct AnthropicRequest {
 
 /// System prompt: either a plain string or an array of content blocks.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(untagged)]
 pub enum AnthropicSystem {
     Text(String),
@@ -52,6 +56,7 @@ pub enum AnthropicSystem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct AnthropicMessage {
     pub role: String,
     pub content: AnthropicContent,
@@ -59,6 +64,7 @@ pub struct AnthropicMessage {
 
 /// Message content: either a plain string or an array of content blocks.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(untagged)]
 pub enum AnthropicContent {
     Text(String),
@@ -66,14 +72,17 @@ pub enum AnthropicContent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct AnthropicTool {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Object))]
     pub input_schema: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct AnthropicResponse {
     pub id: String,
     #[serde(default = "default_message_type")]
@@ -98,6 +107,7 @@ fn default_assistant_role() -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct AnthropicUsage {
     pub input_tokens: u32,
     pub output_tokens: u32,

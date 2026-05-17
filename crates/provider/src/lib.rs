@@ -42,6 +42,14 @@ pub enum RemoteProvider {
         base_url: String,
         api_key: String,
     },
+    /// DeepSeek API — dual-compatible: OpenAI-format at `openai_base_url`,
+    /// Anthropic-format at `anthropic_base_url`. Both use Bearer auth.
+    Deepseek {
+        client: HttpClient,
+        openai_base_url: String,
+        anthropic_base_url: String,
+        api_key: String,
+    },
     /// Google Gemini API. Requires request/response translation.
     Google { client: HttpClient, api_key: String },
     /// AWS Bedrock. Requires SigV4 signing + translation.
@@ -122,6 +130,19 @@ impl RemoteProvider {
                     .unwrap_or_else(|| provider::anthropic::DEFAULT_BASE_URL.to_string()),
                 api_key: config.api_key.clone().unwrap_or_default(),
             },
+            ProviderKind::Deepseek => {
+                let base = config
+                    .base_url
+                    .clone()
+                    .unwrap_or_else(|| provider::deepseek::DEFAULT_BASE_URL.to_string());
+                let base = base.trim_end_matches('/');
+                RemoteProvider::Deepseek {
+                    client,
+                    openai_base_url: normalize_base_url(&format!("{base}/v1")),
+                    anthropic_base_url: format!("{base}/anthropic"),
+                    api_key: config.api_key.clone().unwrap_or_default(),
+                }
+            }
             ProviderKind::Google => RemoteProvider::Google {
                 client,
                 api_key: config.api_key.clone().unwrap_or_default(),
@@ -211,6 +232,12 @@ impl Provider for RemoteProvider {
                 base_url,
                 api_key,
             } => provider::anthropic::chat_completion(client, base_url, api_key, request).await,
+            RemoteProvider::Deepseek {
+                client,
+                openai_base_url,
+                api_key,
+                ..
+            } => provider::openai::chat_completion(client, openai_base_url, api_key, request).await,
             RemoteProvider::Google { client, api_key } => {
                 provider::google::chat_completion(client, api_key, request).await
             }
@@ -262,6 +289,17 @@ impl Provider for RemoteProvider {
                     client, base_url, api_key, request, &request.model,
                 )
                 .await?;
+                Ok(s.boxed())
+            }
+            RemoteProvider::Deepseek {
+                client,
+                openai_base_url,
+                api_key,
+                ..
+            } => {
+                let s =
+                    provider::openai::chat_completion_stream(client, openai_base_url, api_key, request)
+                        .await?;
                 Ok(s.boxed())
             }
             RemoteProvider::Google { client, api_key } => {
@@ -323,6 +361,12 @@ impl Provider for RemoteProvider {
             RemoteProvider::Anthropic { .. } => {
                 Err(provider::anthropic::not_implemented("embedding"))
             }
+            RemoteProvider::Deepseek {
+                client,
+                openai_base_url,
+                api_key,
+                ..
+            } => provider::openai::embedding(client, openai_base_url, api_key, request).await,
             RemoteProvider::Google { .. } => Err(provider::google::not_implemented("embedding")),
             RemoteProvider::Bedrock { .. } => Err(provider::bedrock::not_implemented("embedding")),
             RemoteProvider::Azure {
@@ -343,6 +387,9 @@ impl Provider for RemoteProvider {
             } => provider::openai::image_generation(client, base_url, api_key, request).await,
             RemoteProvider::Anthropic { .. } => {
                 Err(provider::anthropic::not_implemented("image_generation"))
+            }
+            RemoteProvider::Deepseek { .. } => {
+                Err(provider::deepseek::not_implemented("image_generation"))
             }
             RemoteProvider::Google { .. } => {
                 Err(provider::google::not_implemented("image_generation"))
@@ -371,6 +418,9 @@ impl Provider for RemoteProvider {
             } => provider::openai::audio_speech(client, base_url, api_key, request).await,
             RemoteProvider::Anthropic { .. } => {
                 Err(provider::anthropic::not_implemented("audio_speech"))
+            }
+            RemoteProvider::Deepseek { .. } => {
+                Err(provider::deepseek::not_implemented("audio_speech"))
             }
             RemoteProvider::Google { .. } => Err(provider::google::not_implemented("audio_speech")),
             RemoteProvider::Bedrock { .. } => {
@@ -405,6 +455,9 @@ impl Provider for RemoteProvider {
             RemoteProvider::Anthropic { .. } => {
                 Err(provider::anthropic::not_implemented("audio_transcription"))
             }
+            RemoteProvider::Deepseek { .. } => {
+                Err(provider::deepseek::not_implemented("audio_transcription"))
+            }
             RemoteProvider::Google { .. } => {
                 Err(provider::google::not_implemented("audio_transcription"))
             }
@@ -435,7 +488,7 @@ impl Provider for RemoteProvider {
     fn is_openai_compat(&self) -> bool {
         matches!(
             self,
-            RemoteProvider::Openai { .. } | RemoteProvider::Azure { .. }
+            RemoteProvider::Openai { .. } | RemoteProvider::Azure { .. } | RemoteProvider::Deepseek { .. }
         )
     }
 
@@ -462,6 +515,15 @@ impl Provider for RemoteProvider {
                 )
                 .await
             }
+            RemoteProvider::Deepseek {
+                client,
+                openai_base_url,
+                api_key,
+                ..
+            } => {
+                provider::openai::chat_completion_raw(client, openai_base_url, api_key, raw_body)
+                    .await
+            }
             _ => {
                 let request: ChatCompletionRequest = crabllm_core::json::from_slice(&raw_body)
                     .map_err(|e| Error::Internal(e.to_string()))?;
@@ -475,7 +537,10 @@ impl Provider for RemoteProvider {
     }
 
     fn is_anthropic_compat(&self) -> bool {
-        matches!(self, RemoteProvider::Anthropic { .. })
+        matches!(
+            self,
+            RemoteProvider::Anthropic { .. } | RemoteProvider::Deepseek { .. }
+        )
     }
 
     async fn anthropic_messages_raw(&self, raw_body: Bytes) -> Result<Bytes, Error> {
@@ -487,6 +552,20 @@ impl Provider for RemoteProvider {
             } => {
                 provider::anthropic::anthropic_messages_raw(client, base_url, api_key, raw_body)
                     .await
+            }
+            RemoteProvider::Deepseek {
+                client,
+                anthropic_base_url,
+                api_key,
+                ..
+            } => {
+                provider::deepseek::anthropic_messages_raw(
+                    client,
+                    anthropic_base_url,
+                    api_key,
+                    raw_body,
+                )
+                .await
             }
             _ => Err(Error::not_implemented("anthropic_messages_raw")),
         }
