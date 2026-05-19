@@ -79,11 +79,10 @@ async fn run_once(provider: &MlxProvider, label: &str, url: String) -> Result<()
     let message = Message {
         role: Role::User,
         content: vec![
-            ContentBlock::Text {
-                text: PROMPT.to_string(),
-            },
+            ContentBlock::text(PROMPT),
             ContentBlock::Image {
                 source: json!({"type": "url", "url": url}),
+                cache_control: None,
             },
         ],
     };

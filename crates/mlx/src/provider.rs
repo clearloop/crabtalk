@@ -168,7 +168,7 @@ impl Provider for MlxProvider {
 
         let mut blocks = Vec::new();
         if !text.is_empty() {
-            blocks.push(ContentBlock::Text { text });
+            blocks.push(ContentBlock::text(text));
         }
         for tc in tool_calls {
             let input = crabllm_core::json::from_str(&tc.function.arguments)
@@ -177,6 +177,7 @@ impl Provider for MlxProvider {
                 id: tc.id,
                 name: tc.function.name,
                 input,
+                cache_control: None,
             });
         }
 

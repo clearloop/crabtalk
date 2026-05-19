@@ -68,6 +68,7 @@ pub(crate) fn emit_usage<S: Storage, P: Provider>(
     endpoint: &'static str,
     tokens_in: u32,
     tokens_out: u32,
+    cache_hit_tokens: u32,
     status: u16,
     error: Option<String>,
 ) {
@@ -83,6 +84,7 @@ pub(crate) fn emit_usage<S: Storage, P: Provider>(
         endpoint,
         tokens_in,
         tokens_out,
+        cache_hit_tokens,
         duration_ms: ctx.started_at.elapsed().as_millis() as u64,
         status,
         error,
@@ -122,6 +124,7 @@ pub(crate) fn emit_usage_error<S: Storage, P: Provider>(
         state,
         ctx,
         endpoint,
+        0,
         0,
         0,
         http_status_from_error(e),
@@ -254,12 +257,14 @@ where
                     // mutability across closure clones.
                     let tokens_in = Arc::new(AtomicU32::new(0));
                     let tokens_out = Arc::new(AtomicU32::new(0));
+                    let cache_hit = Arc::new(AtomicU32::new(0));
                     let first_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
                     let ctx_done = ctx.clone();
                     let errored_done = errored.clone();
                     let tokens_in_done = tokens_in.clone();
                     let tokens_out_done = tokens_out.clone();
+                    let cache_hit_done = cache_hit.clone();
                     let first_error_done = first_error.clone();
                     let state_done = state.clone();
 
@@ -269,6 +274,7 @@ where
                         let errored = errored.clone();
                         let tokens_in = tokens_in.clone();
                         let tokens_out = tokens_out.clone();
+                        let cache_hit = cache_hit.clone();
                         let first_error = first_error.clone();
                         async move {
                             match &result {
@@ -284,6 +290,10 @@ where
                                         tokens_in.store(usage.prompt_tokens, Ordering::Relaxed);
                                         tokens_out
                                             .store(usage.completion_tokens, Ordering::Relaxed);
+                                        cache_hit.store(
+                                            usage.prompt_cache_hit_tokens.unwrap_or(0),
+                                            Ordering::Relaxed,
+                                        );
                                     }
                                     for ext in extensions.iter() {
                                         ext.on_chunk(&ctx, chunk).await;
@@ -342,6 +352,7 @@ where
                             "chat.completions",
                             tokens_in_done.load(Ordering::Relaxed),
                             tokens_out_done.load(Ordering::Relaxed),
+                            cache_hit_done.load(Ordering::Relaxed),
                             status,
                             error,
                         );
@@ -379,16 +390,22 @@ where
         for deployment in &deployments {
             match try_chat_with_retries(deployment, &request).await {
                 Ok(resp) => {
-                    let (pt, ct) = resp
+                    let (pt, ct, ch) = resp
                         .usage
                         .as_ref()
-                        .map(|u| (u.prompt_tokens, u.completion_tokens))
-                        .unwrap_or((0, 0));
+                        .map(|u| {
+                            (
+                                u.prompt_tokens,
+                                u.completion_tokens,
+                                u.prompt_cache_hit_tokens.unwrap_or(0),
+                            )
+                        })
+                        .unwrap_or((0, 0, 0));
                     if pt > 0 || ct > 0 {
                         record_tokens(&ctx, pt, ct);
                     }
                     record_duration(&ctx, "2xx");
-                    emit_usage(&state, &ctx, "chat.completions", pt, ct, 200, None);
+                    emit_usage(&state, &ctx, "chat.completions", pt, ct, ch, 200, None);
                     for ext in state.extensions.iter() {
                         ext.on_response(&ctx, &request, &resp).await;
                     }
@@ -445,16 +462,22 @@ async fn handle_raw_proxy<S: Storage, P: Provider>(
         .await
         {
             Ok(resp_bytes) => {
-                let (pt, ct) = crabllm_core::json::from_slice::<UsagePeek>(&resp_bytes)
+                let (pt, ct, ch) = crabllm_core::json::from_slice::<UsagePeek>(&resp_bytes)
                     .ok()
                     .and_then(|p| p.usage)
-                    .map(|u| (u.prompt_tokens, u.completion_tokens))
-                    .unwrap_or((0, 0));
+                    .map(|u| {
+                        (
+                            u.prompt_tokens,
+                            u.completion_tokens,
+                            u.prompt_cache_hit_tokens.unwrap_or(0),
+                        )
+                    })
+                    .unwrap_or((0, 0, 0));
                 if pt > 0 || ct > 0 {
                     record_tokens(&ctx, pt, ct);
                 }
                 record_duration(&ctx, "2xx");
-                emit_usage(state, &ctx, "chat.completions", pt, ct, 200, None);
+                emit_usage(state, &ctx, "chat.completions", pt, ct, ch, 200, None);
                 return (
                     [(axum::http::header::CONTENT_TYPE, "application/json")],
                     resp_bytes,
@@ -540,6 +563,7 @@ where
                     &ctx,
                     "embeddings",
                     resp.usage.prompt_tokens,
+                    0,
                     0,
                     200,
                     None,
@@ -693,7 +717,7 @@ where
         {
             Ok((bytes, content_type)) => {
                 record_duration(&ctx, "2xx");
-                emit_usage(&state, &ctx, "images.generations", 0, 0, 200, None);
+                emit_usage(&state, &ctx, "images.generations", 0, 0, 0, 200, None);
                 return ([(axum::http::header::CONTENT_TYPE, content_type)], bytes).into_response();
             }
             Err(e) => last_err = Some(e),
@@ -771,7 +795,7 @@ where
         {
             Ok((bytes, content_type)) => {
                 record_duration(&ctx, "2xx");
-                emit_usage(&state, &ctx, "audio.speech", 0, 0, 200, None);
+                emit_usage(&state, &ctx, "audio.speech", 0, 0, 0, 200, None);
                 return ([(axum::http::header::CONTENT_TYPE, content_type)], bytes).into_response();
             }
             Err(e) => last_err = Some(e),
@@ -899,7 +923,7 @@ where
         {
             Ok((bytes, content_type)) => {
                 record_duration(&ctx, "2xx");
-                emit_usage(&state, &ctx, "audio.transcriptions", 0, 0, 200, None);
+                emit_usage(&state, &ctx, "audio.transcriptions", 0, 0, 0, 200, None);
                 return ([(axum::http::header::CONTENT_TYPE, content_type)], bytes).into_response();
             }
             Err(e) => last_err = Some(e),

@@ -9,6 +9,10 @@ pub struct PricingConfig {
     pub prompt_cost_per_million: f64,
     /// Cost per million completion tokens in USD.
     pub completion_cost_per_million: f64,
+    /// Cost per million cache-hit prompt tokens in USD.
+    /// When `None`, cache hits are priced at the regular prompt rate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_hit_cost_per_million: Option<f64>,
 }
 
 /// Top-level gateway configuration, loaded from TOML.

@@ -210,12 +210,18 @@ pub enum Stop {
 #[serde(tag = "type")]
 pub enum ContentBlock {
     #[serde(rename = "text")]
-    Text { text: String },
+    Text {
+        text: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache_control: Option<serde_json::Value>,
+    },
     #[serde(rename = "tool_use")]
     ToolUse {
         id: String,
         name: String,
         input: serde_json::Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache_control: Option<serde_json::Value>,
     },
     #[serde(rename = "tool_result")]
     ToolResult {
@@ -223,6 +229,8 @@ pub enum ContentBlock {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
         content: ToolResultContent,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache_control: Option<serde_json::Value>,
     },
     #[serde(rename = "thinking")]
     Thinking {
@@ -231,7 +239,20 @@ pub enum ContentBlock {
         signature: Option<String>,
     },
     #[serde(rename = "image")]
-    Image { source: serde_json::Value },
+    Image {
+        source: serde_json::Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache_control: Option<serde_json::Value>,
+    },
+}
+
+impl ContentBlock {
+    pub fn text(s: impl Into<String>) -> Self {
+        Self::Text {
+            text: s.into(),
+            cache_control: None,
+        }
+    }
 }
 
 /// Tool result content: either a plain string or nested content blocks.
@@ -255,27 +276,21 @@ impl Message {
     pub fn user(content: impl Into<String>) -> Self {
         Self {
             role: Role::User,
-            content: vec![ContentBlock::Text {
-                text: content.into(),
-            }],
+            content: vec![ContentBlock::text(content)],
         }
     }
 
     pub fn assistant(content: impl Into<String>) -> Self {
         Self {
             role: Role::Assistant,
-            content: vec![ContentBlock::Text {
-                text: content.into(),
-            }],
+            content: vec![ContentBlock::text(content)],
         }
     }
 
     pub fn system(content: impl Into<String>) -> Self {
         Self {
             role: Role::System,
-            content: vec![ContentBlock::Text {
-                text: content.into(),
-            }],
+            content: vec![ContentBlock::text(content)],
         }
     }
 
@@ -290,6 +305,7 @@ impl Message {
                 tool_use_id: tool_use_id.into(),
                 name: Some(name.into()),
                 content: ToolResultContent::Text(content.into()),
+                cache_control: None,
             }],
         }
     }
@@ -300,7 +316,7 @@ impl Message {
     /// `ToolResult { content: Text(..) }` blocks.
     pub fn content_str(&self) -> Option<&str> {
         for block in &self.content {
-            if let ContentBlock::Text { text } = block
+            if let ContentBlock::Text { text, .. } = block
                 && !text.is_empty()
             {
                 return Some(text.as_str());
@@ -322,7 +338,7 @@ impl Message {
     /// Iterator over tool-use blocks.
     pub fn tool_uses(&self) -> impl Iterator<Item = (&str, &str, &serde_json::Value)> {
         self.content.iter().filter_map(|b| match b {
-            ContentBlock::ToolUse { id, name, input } => Some((id.as_str(), name.as_str(), input)),
+            ContentBlock::ToolUse { id, name, input, .. } => Some((id.as_str(), name.as_str(), input)),
             _ => None,
         })
     }

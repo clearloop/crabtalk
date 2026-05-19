@@ -22,11 +22,14 @@ pub struct ModelInfo {
 impl ModelInfo {
     /// Compute cost in USD for the given token counts. Returns 0.0 if
     /// pricing is not set.
-    pub fn cost(&self, prompt_tokens: u32, completion_tokens: u32) -> f64 {
+    pub fn cost(&self, prompt_tokens: u32, completion_tokens: u32, cache_hit_tokens: u32) -> f64 {
         let Some(ref p) = self.pricing else {
             return 0.0;
         };
-        (prompt_tokens as f64 * p.prompt_cost_per_million
+        let cache_hit_rate = p.cache_hit_cost_per_million.unwrap_or(p.prompt_cost_per_million);
+        let non_cached = prompt_tokens.saturating_sub(cache_hit_tokens);
+        (non_cached as f64 * p.prompt_cost_per_million
+            + cache_hit_tokens as f64 * cache_hit_rate
             + completion_tokens as f64 * p.completion_cost_per_million)
             / 1_000_000.0
     }

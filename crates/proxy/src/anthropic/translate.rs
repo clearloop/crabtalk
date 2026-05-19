@@ -4,7 +4,6 @@
 //! # Known lossiness
 //!
 //! Fields we deliberately do not preserve yet:
-//! - `cache_control` markers on blocks (prompt caching opt-in).
 //! - `metadata.user_id` and other top-level `metadata` fields.
 //! - Thinking block `signature` (only load-bearing when replaying extended
 //!   thinking back to the Anthropic upstream, which the inbound path does not
@@ -84,7 +83,7 @@ fn append_message(out: &mut Vec<Message>, msg: AnthropicMessage) {
         _ => Role::Custom(msg.role),
     };
     let blocks = match msg.content {
-        AnthropicContent::Text(s) => vec![AnthropicContentBlock::Text { text: s }],
+        AnthropicContent::Text(s) => vec![AnthropicContentBlock::text(s)],
         AnthropicContent::Blocks(b) => b,
     };
     out.push(Message {
@@ -96,7 +95,7 @@ fn append_message(out: &mut Vec<Message>, msg: AnthropicMessage) {
 fn flatten_text_blocks(blocks: &[AnthropicContentBlock]) -> String {
     let mut out = String::new();
     for block in blocks {
-        if let AnthropicContentBlock::Text { text } = block {
+        if let AnthropicContentBlock::Text { text, .. } = block {
             if !out.is_empty() {
                 out.push('\n');
             }
@@ -164,9 +163,7 @@ pub fn from_chat_completion(resp: ChatCompletionResponse) -> Result<AnthropicRes
     let stop_reason = choice.finish_reason.as_ref().map(finish_reason_to_stop);
     let mut content = choice.message.content;
     if content.is_empty() {
-        content.push(AnthropicContentBlock::Text {
-            text: String::new(),
-        });
+        content.push(AnthropicContentBlock::text(""));
     }
 
     Ok(AnthropicResponse {

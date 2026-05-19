@@ -166,7 +166,7 @@ fn translate_request(request: &ChatCompletionRequest) -> ConverseRequest {
     for msg in &request.messages {
         if msg.role == Role::System {
             for block in &msg.content {
-                if let CoreContentBlock::Text { text } = block {
+                if let CoreContentBlock::Text { text, .. } = block {
                     system_blocks.push(SystemBlock { text: text.clone() });
                 }
             }
@@ -175,8 +175,8 @@ fn translate_request(request: &ChatCompletionRequest) -> ConverseRequest {
                 .content
                 .iter()
                 .filter_map(|b| match b {
-                    CoreContentBlock::Text { text } => Some(ContentBlock::Text(text.clone())),
-                    CoreContentBlock::ToolUse { id, name, input } => Some(ContentBlock::ToolUse {
+                    CoreContentBlock::Text { text, .. } => Some(ContentBlock::Text(text.clone())),
+                    CoreContentBlock::ToolUse { id, name, input, .. } => Some(ContentBlock::ToolUse {
                         tool_use_id: id.clone(),
                         name: name.clone(),
                         input: input.clone(),
@@ -191,7 +191,7 @@ fn translate_request(request: &ChatCompletionRequest) -> ConverseRequest {
                             crabllm_core::ToolResultContent::Blocks(blocks) => blocks
                                 .iter()
                                 .filter_map(|b| match b {
-                                    CoreContentBlock::Text { text } => Some(text.as_str()),
+                                    CoreContentBlock::Text { text, .. } => Some(text.as_str()),
                                     _ => None,
                                 })
                                 .collect::<Vec<_>>()
@@ -279,7 +279,7 @@ fn translate_response(resp: ConverseResponse, model: &str) -> ChatCompletionResp
         for block in &message.content {
             match block {
                 ContentBlock::Text(t) => {
-                    blocks.push(CoreContentBlock::Text { text: t.clone() });
+                    blocks.push(CoreContentBlock::text(t.clone()));
                 }
                 ContentBlock::ToolUse {
                     tool_use_id,
@@ -290,6 +290,7 @@ fn translate_response(resp: ConverseResponse, model: &str) -> ChatCompletionResp
                         id: tool_use_id.clone(),
                         name: name.clone(),
                         input: input.clone(),
+                        cache_control: None,
                     });
                 }
                 ContentBlock::ToolResult { .. } => {}

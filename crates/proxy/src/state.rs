@@ -27,6 +27,8 @@ pub struct UsageEvent {
     /// Completion / output tokens. 0 for endpoints that don't generate
     /// tokens (embeddings, images, audio).
     pub tokens_out: u32,
+    /// Prompt tokens served from provider cache. Subset of `tokens_in`.
+    pub cache_hit_tokens: u32,
     pub duration_ms: u64,
     /// The wire HTTP status the client observed, or `0` when a
     /// streaming chat response sent 200 OK headers and then broke

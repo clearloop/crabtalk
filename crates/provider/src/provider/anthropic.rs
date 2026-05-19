@@ -77,14 +77,14 @@ struct SseContentBlock {
 // ── Translation ──
 
 fn translate_request(request: &ChatCompletionRequest) -> AnthropicRequest {
-    let mut system_parts = Vec::new();
+    let mut system_blocks = Vec::new();
     let mut messages = Vec::new();
 
     for msg in &request.messages {
         if msg.role == Role::System {
             for block in &msg.content {
-                if let ContentBlock::Text { text } = block {
-                    system_parts.push(text.clone());
+                if let ContentBlock::Text { .. } = block {
+                    system_blocks.push(block.clone());
                 }
             }
         } else {
@@ -95,10 +95,23 @@ fn translate_request(request: &ChatCompletionRequest) -> AnthropicRequest {
         }
     }
 
-    let system = if system_parts.is_empty() {
+    let system = if system_blocks.is_empty() {
         None
+    } else if system_blocks
+        .iter()
+        .any(|b| matches!(b, ContentBlock::Text { cache_control: Some(_), .. }))
+    {
+        Some(AnthropicSystem::Blocks(system_blocks))
     } else {
-        Some(AnthropicSystem::Text(system_parts.join("\n")))
+        let joined = system_blocks
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        Some(AnthropicSystem::Text(joined))
     };
 
     // B2: When tool_choice is "none", omit tools and tool_choice entirely.

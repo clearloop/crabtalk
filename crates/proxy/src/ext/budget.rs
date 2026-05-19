@@ -65,8 +65,8 @@ impl Budget {
         provider: &str,
         prompt_tokens: u32,
         completion_tokens: u32,
+        cache_hit_tokens: u32,
     ) -> i64 {
-        // Try provider-qualified key first (e.g. "openai/gpt-4o"), fall back to bare model name.
         let qualified = format!("{provider}/{model}");
         let info = self
             .models
@@ -75,7 +75,7 @@ impl Budget {
         let Some(info) = info else {
             return 0;
         };
-        (info.cost(prompt_tokens, completion_tokens) * 1_000_000.0).round() as i64
+        (info.cost(prompt_tokens, completion_tokens, cache_hit_tokens) * 1_000_000.0).round() as i64
     }
 
     pub fn admin_routes(&self) -> Router {
@@ -101,8 +101,9 @@ impl Budget {
         provider: &str,
         prompt: u32,
         completion: u32,
+        cache_hit: u32,
     ) {
-        let micros = self.cost_micros(model, provider, prompt, completion);
+        let micros = self.cost_micros(model, provider, prompt, completion, cache_hit);
         if micros > 0 {
             let key = storage_key(&PREFIX_BUDGET, principal.as_bytes());
             let _ = self.storage.increment(&key, micros).await;
@@ -164,6 +165,7 @@ impl crabllm_core::Extension for Budget {
                     &provider,
                     u.prompt_tokens,
                     u.completion_tokens,
+                    u.prompt_cache_hit_tokens.unwrap_or(0),
                 )
                 .await;
             }
@@ -187,6 +189,7 @@ impl crabllm_core::Extension for Budget {
                     &provider,
                     u.prompt_tokens,
                     u.completion_tokens,
+                    u.prompt_cache_hit_tokens.unwrap_or(0),
                 )
                 .await;
             }

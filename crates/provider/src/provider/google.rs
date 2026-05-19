@@ -207,7 +207,7 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
     for msg in &request.messages {
         if msg.role == Role::System {
             for block in &msg.content {
-                if let ContentBlock::Text { text } = block {
+                if let ContentBlock::Text { text, .. } = block {
                     system_parts.push(GeminiPart {
                         text: Some(text.clone()),
                         function_call: None,
@@ -224,7 +224,7 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
             let mut parts = Vec::new();
             for block in &msg.content {
                 match block {
-                    ContentBlock::Text { text } if !text.is_empty() => {
+                    ContentBlock::Text { text, .. } if !text.is_empty() => {
                         parts.push(GeminiPart {
                             text: Some(text.clone()),
                             function_call: None,
@@ -232,7 +232,7 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
                             thought_signature: None,
                         });
                     }
-                    ContentBlock::ToolUse { id, name, input } => {
+                    ContentBlock::ToolUse { id, name, input, .. } => {
                         let signature = extract_signature_from_id(id)
                             .map(|s| s.to_string())
                             .or_else(|| {
@@ -252,6 +252,7 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
                         tool_use_id,
                         name,
                         content,
+                        ..
                     } => {
                         let fn_name = name
                             .as_deref()
@@ -263,7 +264,7 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
                             ToolResultContent::Blocks(blocks) => blocks
                                 .iter()
                                 .filter_map(|b| match b {
-                                    ContentBlock::Text { text } => Some(text.as_str()),
+                                    ContentBlock::Text { text, .. } => Some(text.as_str()),
                                     _ => None,
                                 })
                                 .collect::<Vec<_>>()
@@ -390,7 +391,7 @@ fn extract_blocks(candidate: &GeminiCandidate) -> Vec<ContentBlock> {
             if let Some(t) = &part.text
                 && !t.is_empty()
             {
-                blocks.push(ContentBlock::Text { text: t.clone() });
+                blocks.push(ContentBlock::text(t.clone()));
             }
             if let Some(fc) = &part.function_call {
                 let base_id = format!("call_{i}");
@@ -399,6 +400,7 @@ fn extract_blocks(candidate: &GeminiCandidate) -> Vec<ContentBlock> {
                     id,
                     name: fc.name.clone(),
                     input: fc.args.clone(),
+                    cache_control: None,
                 });
             }
         }
@@ -553,8 +555,8 @@ fn gemini_sse_stream(
                     let mut tool_call_deltas: Vec<ToolCallDelta> = Vec::new();
                     for block in blocks {
                         match block {
-                            ContentBlock::Text { text: t } => text.push_str(&t),
-                            ContentBlock::ToolUse { id, name, input } => {
+                            ContentBlock::Text { text: t, .. } => text.push_str(&t),
+                            ContentBlock::ToolUse { id, name, input, .. } => {
                                 tool_call_deltas.push(ToolCallDelta {
                                     index: tool_call_deltas.len() as u32,
                                     id: Some(id),

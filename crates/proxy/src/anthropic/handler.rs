@@ -140,12 +140,14 @@ where
                     let errored = Arc::new(AtomicBool::new(false));
                     let tokens_in = Arc::new(AtomicU32::new(0));
                     let tokens_out = Arc::new(AtomicU32::new(0));
+                    let cache_hit = Arc::new(AtomicU32::new(0));
                     let first_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
                     let ctx_done = ctx.clone();
                     let errored_done = errored.clone();
                     let tokens_in_done = tokens_in.clone();
                     let tokens_out_done = tokens_out.clone();
+                    let cache_hit_done = cache_hit.clone();
                     let first_error_done = first_error.clone();
 
                     let observed = stream.then(move |result| {
@@ -154,6 +156,7 @@ where
                         let errored = errored.clone();
                         let tokens_in = tokens_in.clone();
                         let tokens_out = tokens_out.clone();
+                        let cache_hit = cache_hit.clone();
                         let first_error = first_error.clone();
                         async move {
                             match &result {
@@ -167,6 +170,10 @@ where
                                         tokens_in.store(usage.prompt_tokens, Ordering::Relaxed);
                                         tokens_out
                                             .store(usage.completion_tokens, Ordering::Relaxed);
+                                        cache_hit.store(
+                                            usage.prompt_cache_hit_tokens.unwrap_or(0),
+                                            Ordering::Relaxed,
+                                        );
                                     }
                                     for ext in extensions.iter() {
                                         ext.on_chunk(&ctx, chunk).await;
@@ -225,6 +232,7 @@ where
                                 ctx_done,
                                 tokens_in_done,
                                 tokens_out_done,
+                                cache_hit_done,
                                 errored_done,
                                 first_error_done,
                             )),
@@ -233,7 +241,7 @@ where
                             match inner.next().await {
                                 Some(item) => Some((item, (inner, slot))),
                                 None => {
-                                    if let Some((state, ctx, ti, to, er, fe)) = slot.take() {
+                                    if let Some((state, ctx, ti, to, ch, er, fe)) = slot.take() {
                                         let errored = er.load(Ordering::Relaxed);
                                         record_duration(&ctx, if errored { "5xx" } else { "2xx" });
                                         let error = fe.lock().unwrap().take();
@@ -244,6 +252,7 @@ where
                                             ENDPOINT,
                                             ti.load(Ordering::Relaxed),
                                             to.load(Ordering::Relaxed),
+                                            ch.load(Ordering::Relaxed),
                                             status,
                                             error,
                                         );
@@ -288,16 +297,22 @@ where
     for deployment in &deployments {
         match try_chat_with_retries(deployment, &request).await {
             Ok(resp) => {
-                let (pt, ct) = resp
+                let (pt, ct, ch) = resp
                     .usage
                     .as_ref()
-                    .map(|u| (u.prompt_tokens, u.completion_tokens))
-                    .unwrap_or((0, 0));
+                    .map(|u| {
+                        (
+                            u.prompt_tokens,
+                            u.completion_tokens,
+                            u.prompt_cache_hit_tokens.unwrap_or(0),
+                        )
+                    })
+                    .unwrap_or((0, 0, 0));
                 if pt > 0 || ct > 0 {
                     record_tokens(&ctx, pt, ct);
                 }
                 record_duration(&ctx, "2xx");
-                emit_usage(&state, &ctx, ENDPOINT, pt, ct, 200, None);
+                emit_usage(&state, &ctx, ENDPOINT, pt, ct, ch, 200, None);
                 for ext in state.extensions.iter() {
                     ext.on_response(&ctx, &request, &resp).await;
                 }
@@ -347,6 +362,8 @@ async fn handle_raw_anthropic<S: Storage, P: Provider>(
         input_tokens: u32,
         #[serde(default)]
         output_tokens: u32,
+        #[serde(default)]
+        cache_read_input_tokens: Option<u32>,
     }
 
     let registry = state.registry();
@@ -373,16 +390,22 @@ async fn handle_raw_anthropic<S: Storage, P: Provider>(
         .await
         {
             Ok(resp_bytes) => {
-                let (pt, ct) = crabllm_core::json::from_slice::<AnthropicUsagePeek>(&resp_bytes)
+                let (pt, ct, ch) = crabllm_core::json::from_slice::<AnthropicUsagePeek>(&resp_bytes)
                     .ok()
                     .and_then(|p| p.usage)
-                    .map(|u| (u.input_tokens, u.output_tokens))
-                    .unwrap_or((0, 0));
+                    .map(|u| {
+                        (
+                            u.input_tokens,
+                            u.output_tokens,
+                            u.cache_read_input_tokens.unwrap_or(0),
+                        )
+                    })
+                    .unwrap_or((0, 0, 0));
                 if pt > 0 || ct > 0 {
                     record_tokens(&ctx, pt, ct);
                 }
                 record_duration(&ctx, "2xx");
-                emit_usage(state, &ctx, ENDPOINT, pt, ct, 200, None);
+                emit_usage(state, &ctx, ENDPOINT, pt, ct, ch, 200, None);
                 return (
                     [(axum::http::header::CONTENT_TYPE, "application/json")],
                     resp_bytes,
