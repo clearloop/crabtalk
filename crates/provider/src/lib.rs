@@ -286,7 +286,11 @@ impl Provider for RemoteProvider {
                 api_key,
             } => {
                 let s = provider::anthropic::chat_completion_stream(
-                    client, base_url, api_key, request, &request.model,
+                    client,
+                    base_url,
+                    api_key,
+                    request,
+                    &request.model,
                 )
                 .await?;
                 Ok(s.boxed())
@@ -297,9 +301,13 @@ impl Provider for RemoteProvider {
                 api_key,
                 ..
             } => {
-                let s =
-                    provider::openai::chat_completion_stream(client, openai_base_url, api_key, request)
-                        .await?;
+                let s = provider::openai::chat_completion_stream(
+                    client,
+                    openai_base_url,
+                    api_key,
+                    request,
+                )
+                .await?;
                 Ok(s.boxed())
             }
             RemoteProvider::Google { client, api_key } => {
@@ -488,7 +496,9 @@ impl Provider for RemoteProvider {
     fn is_openai_compat(&self) -> bool {
         matches!(
             self,
-            RemoteProvider::Openai { .. } | RemoteProvider::Azure { .. } | RemoteProvider::Deepseek { .. }
+            RemoteProvider::Openai { .. }
+                | RemoteProvider::Azure { .. }
+                | RemoteProvider::Deepseek { .. }
         )
     }
 

@@ -650,4 +650,3 @@ fn anthropic_sse_stream(
         },
     )
 }
-
