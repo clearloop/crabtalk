@@ -18,8 +18,8 @@ jobs:
       - name: Install Toolchain
         run: rustup update stable && rustup default stable
       - uses: Swatinem/rust-cache@v2
-      - name: Install protoc
-        uses: arduino/setup-protoc@v3
+      # - name: Install protoc
+      #   uses: arduino/setup-protoc@v3
       - uses: taiki-e/install-action@sccache
       - uses: taiki-e/install-action@nextest
       - name: Build
@@ -38,8 +38,8 @@ jobs:
           rustup update stable && rustup default stable
           rustup component add clippy rustfmt
       - uses: Swatinem/rust-cache@v2
-      - name: Install protoc
-        uses: arduino/setup-protoc@v3
+      # - name: Install protoc
+      #   uses: arduino/setup-protoc@v3
       - uses: taiki-e/install-action@sccache
       - name: Format
         run: cargo fmt --check
