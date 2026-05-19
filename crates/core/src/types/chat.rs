@@ -294,13 +294,26 @@ impl Message {
         }
     }
 
-    /// Concatenated text from all Text blocks, or `None` if empty.
+    /// First non-empty text found in content blocks.
+    ///
+    /// Checks `Text` blocks first, then falls back to
+    /// `ToolResult { content: Text(..) }` blocks.
     pub fn content_str(&self) -> Option<&str> {
         for block in &self.content {
             if let ContentBlock::Text { text } = block
                 && !text.is_empty()
             {
                 return Some(text.as_str());
+            }
+        }
+        for block in &self.content {
+            if let ContentBlock::ToolResult {
+                content: ToolResultContent::Text(s),
+                ..
+            } = block
+                && !s.is_empty()
+            {
+                return Some(s.as_str());
             }
         }
         None
