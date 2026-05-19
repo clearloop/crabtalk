@@ -237,6 +237,7 @@ pub enum ContentBlock {
 /// Tool result content: either a plain string or nested content blocks.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[cfg_attr(feature = "openapi", schema(no_recursion))]
 #[serde(untagged)]
 pub enum ToolResultContent {
     Text(String),
