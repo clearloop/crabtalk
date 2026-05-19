@@ -1,15 +1,19 @@
 //! Anthropic Messages API wire types.
 //!
-//! These types are bidirectional — used both when crabllm acts as a client of
-//! the upstream Anthropic API (outbound, in the `provider` crate) and when
-//! crabllm exposes an Anthropic-compatible endpoint to its own clients
-//! (inbound, in the `proxy` crate).
+//! The canonical content-block types (`ContentBlock`, `ToolResultContent`) now
+//! live in `crate::types::chat`. This module re-exports them as
+//! `AnthropicContentBlock` for backward compatibility and defines the
+//! Anthropic-specific request/response envelope types.
 
+use crate::types::chat::ContentBlock;
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_MAX_TOKENS: u32 = 4096;
 
+pub type AnthropicContentBlock = ContentBlock;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct ThinkingConfig {
     #[serde(rename = "type")]
     pub kind: String,
@@ -18,6 +22,7 @@ pub struct ThinkingConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct AnthropicRequest {
     pub model: String,
     pub messages: Vec<AnthropicMessage>,
@@ -33,6 +38,7 @@ pub struct AnthropicRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<AnthropicTool>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Object))]
     pub tool_choice: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_sequences: Option<Vec<String>>,
@@ -41,15 +47,16 @@ pub struct AnthropicRequest {
 }
 
 /// System prompt: either a plain string or an array of content blocks.
-/// Anthropic SDK clients send either form interchangeably.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(untagged)]
 pub enum AnthropicSystem {
     Text(String),
-    Blocks(Vec<AnthropicContentBlock>),
+    Blocks(Vec<ContentBlock>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct AnthropicMessage {
     pub role: String,
     pub content: AnthropicContent,
@@ -57,60 +64,25 @@ pub struct AnthropicMessage {
 
 /// Message content: either a plain string or an array of content blocks.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 #[serde(untagged)]
 pub enum AnthropicContent {
     Text(String),
-    Blocks(Vec<AnthropicContentBlock>),
-}
-
-/// A content block. Used in both requests and responses, so the variant set is
-/// the union of what either side can send; producers only emit valid variants
-/// for their direction.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum AnthropicContentBlock {
-    #[serde(rename = "text")]
-    Text { text: String },
-    #[serde(rename = "image")]
-    Image { source: serde_json::Value },
-    #[serde(rename = "tool_use")]
-    ToolUse {
-        id: String,
-        name: String,
-        input: serde_json::Value,
-    },
-    #[serde(rename = "tool_result")]
-    ToolResult {
-        tool_use_id: String,
-        content: ToolResultContent,
-    },
-    #[serde(rename = "thinking")]
-    Thinking {
-        #[serde(default, skip_serializing_if = "String::is_empty")]
-        thinking: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        signature: Option<String>,
-    },
-}
-
-/// Tool result content: Anthropic allows either a plain string or an array of
-/// text/image blocks nested inside the result.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum ToolResultContent {
-    Text(String),
-    Blocks(Vec<AnthropicContentBlock>),
+    Blocks(Vec<ContentBlock>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct AnthropicTool {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[cfg_attr(feature = "openapi", schema(value_type = Object))]
     pub input_schema: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct AnthropicResponse {
     pub id: String,
     #[serde(default = "default_message_type")]
@@ -118,7 +90,7 @@ pub struct AnthropicResponse {
     #[serde(default = "default_assistant_role")]
     pub role: String,
     pub model: String,
-    pub content: Vec<AnthropicContentBlock>,
+    pub content: Vec<ContentBlock>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -135,6 +107,7 @@ fn default_assistant_role() -> String {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct AnthropicUsage {
     pub input_tokens: u32,
     pub output_tokens: u32,

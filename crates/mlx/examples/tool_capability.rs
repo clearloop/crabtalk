@@ -74,7 +74,8 @@ async fn main() {
     match provider.chat_completion(&req).await {
         Ok(resp) => {
             let msg = &resp.choices[0].message;
-            let text = msg.content.as_ref().and_then(|v| v.as_str()).unwrap_or("");
+            let text = msg.content_str().unwrap_or("");
+            let tool_uses: Vec<_> = msg.tool_uses().collect();
             let usage = resp.usage.as_ref();
             eprintln!(
                 "      {} prompt / {} completion tokens",
@@ -82,7 +83,7 @@ async fn main() {
                 usage.map(|u| u.completion_tokens).unwrap_or(0)
             );
             eprintln!("      finish_reason: {:?}", resp.choices[0].finish_reason);
-            eprintln!("      tool_calls: {:?}", msg.tool_calls);
+            eprintln!("      tool_calls: {tool_uses:?}");
             eprintln!("      content: {text:?}\n");
         }
         Err(e) => {

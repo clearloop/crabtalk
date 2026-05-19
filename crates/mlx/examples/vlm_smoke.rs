@@ -15,9 +15,9 @@
 //! Usage: cargo run -p crabllm-mlx --example vlm_smoke
 
 use base64::{Engine, engine::general_purpose::STANDARD};
-use crabllm_core::{ChatCompletionRequest, Message, Provider, Role};
+use crabllm_core::{ChatCompletionRequest, ContentBlock, Message, Provider, Role};
 use crabllm_mlx::{DownloadEvent, MlxPool, MlxProvider, cached_model_path, download_model};
-use serde_json::{Value, json};
+use serde_json::json;
 use std::{error::Error, sync::Arc};
 
 const MODEL: &str = "mlx-community/Qwen3.5-0.8B-MLX-4bit";
@@ -76,19 +76,16 @@ fn ensure_downloaded() -> Result<(), Box<dyn Error>> {
 }
 
 async fn run_once(provider: &MlxProvider, label: &str, url: String) -> Result<(), Box<dyn Error>> {
-    let content: Value = json!([
-        {"type": "text", "text": PROMPT},
-        {"type": "image_url", "image_url": {"url": url}},
-    ]);
-
     let message = Message {
         role: Role::User,
-        content: Some(content),
-        tool_calls: None,
-        tool_call_id: None,
-        name: None,
-        reasoning_content: None,
-        extra: Default::default(),
+        content: vec![
+            ContentBlock::Text {
+                text: PROMPT.to_string(),
+            },
+            ContentBlock::Image {
+                source: json!({"type": "url", "url": url}),
+            },
+        ],
     };
 
     let request = ChatCompletionRequest {

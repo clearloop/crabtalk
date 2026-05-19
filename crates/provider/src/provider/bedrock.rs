@@ -15,9 +15,9 @@ use crate::provider::schema;
 use crate::{ByteStream, HttpClient};
 #[cfg(feature = "provider-bedrock")]
 use crabllm_core::{
-    ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice, Delta,
-    FinishReason, FunctionCall, FunctionCallDelta, Message, Role, ToolCall, ToolCallDelta,
-    ToolType, Usage,
+    ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice,
+    ContentBlock as CoreContentBlock, Delta, FinishReason, FunctionCallDelta, Message, Role,
+    ToolCallDelta, Usage,
 };
 #[cfg(feature = "provider-bedrock")]
 use futures::stream::{self, Stream};
@@ -165,68 +165,49 @@ fn translate_request(request: &ChatCompletionRequest) -> ConverseRequest {
 
     for msg in &request.messages {
         if msg.role == Role::System {
-            if let Some(content) = &msg.content
-                && let Some(s) = content.as_str()
-            {
-                system_blocks.push(SystemBlock {
-                    text: s.to_string(),
-                });
+            for block in &msg.content {
+                if let CoreContentBlock::Text { text } = block {
+                    system_blocks.push(SystemBlock { text: text.clone() });
+                }
             }
-        } else if msg.role == Role::Tool {
-            // Tool result → user message with toolResult content block.
-            let content_str = msg
-                .content
-                .as_ref()
-                .map(|c| {
-                    if let Some(s) = c.as_str() {
-                        s.to_string()
-                    } else {
-                        c.to_string()
-                    }
-                })
-                .unwrap_or_default();
-            let tool_use_id = msg.tool_call_id.clone().unwrap_or_default();
-            messages.push(ConverseMessage {
-                role: "user".to_string(),
-                content: vec![ContentBlock::ToolResult {
-                    tool_use_id,
-                    content: vec![ToolResultContent::Text(content_str)],
-                }],
-            });
-        } else if msg.role == Role::Assistant
-            && let Some(tool_calls) = &msg.tool_calls
-        {
-            // Assistant message with tool_calls → content blocks.
-            let mut blocks = Vec::new();
-            if let Some(content) = &msg.content
-                && let Some(s) = content.as_str()
-                && !s.is_empty()
-            {
-                blocks.push(ContentBlock::Text(s.to_string()));
-            }
-            for tc in tool_calls {
-                let input = crabllm_core::json::from_str(&tc.function.arguments)
-                    .unwrap_or(serde_json::Value::Object(Default::default()));
-                blocks.push(ContentBlock::ToolUse {
-                    tool_use_id: tc.id.clone(),
-                    name: tc.function.name.clone(),
-                    input,
-                });
-            }
-            messages.push(ConverseMessage {
-                role: "assistant".to_string(),
-                content: blocks,
-            });
         } else {
-            let text = msg
+            let blocks: Vec<ContentBlock> = msg
                 .content
-                .as_ref()
-                .and_then(|c| c.as_str())
-                .unwrap_or("")
-                .to_string();
+                .iter()
+                .filter_map(|b| match b {
+                    CoreContentBlock::Text { text } => Some(ContentBlock::Text(text.clone())),
+                    CoreContentBlock::ToolUse { id, name, input } => Some(ContentBlock::ToolUse {
+                        tool_use_id: id.clone(),
+                        name: name.clone(),
+                        input: input.clone(),
+                    }),
+                    CoreContentBlock::ToolResult {
+                        tool_use_id,
+                        content,
+                        ..
+                    } => {
+                        let text = match content {
+                            crabllm_core::ToolResultContent::Text(s) => s.clone(),
+                            crabllm_core::ToolResultContent::Blocks(blocks) => blocks
+                                .iter()
+                                .filter_map(|b| match b {
+                                    CoreContentBlock::Text { text } => Some(text.as_str()),
+                                    _ => None,
+                                })
+                                .collect::<Vec<_>>()
+                                .join("\n"),
+                        };
+                        Some(ContentBlock::ToolResult {
+                            tool_use_id: tool_use_id.clone(),
+                            content: vec![ToolResultContent::Text(text)],
+                        })
+                    }
+                    _ => None,
+                })
+                .collect();
             messages.push(ConverseMessage {
                 role: msg.role.as_str().to_string(),
-                content: vec![ContentBlock::Text(text)],
+                content: blocks,
             });
         }
     }
@@ -292,44 +273,29 @@ fn map_stop_reason(stop_reason: &Option<String>) -> Option<FinishReason> {
 
 #[cfg(feature = "provider-bedrock")]
 fn translate_response(resp: ConverseResponse, model: &str) -> ChatCompletionResponse {
-    let mut content_text = String::new();
-    let mut tool_calls = Vec::new();
+    let mut blocks = Vec::new();
 
     if let Some(message) = &resp.output.message {
         for block in &message.content {
             match block {
-                ContentBlock::Text(t) => content_text.push_str(t),
+                ContentBlock::Text(t) => {
+                    blocks.push(CoreContentBlock::Text { text: t.clone() });
+                }
                 ContentBlock::ToolUse {
                     tool_use_id,
                     name,
                     input,
                 } => {
-                    tool_calls.push(ToolCall {
-                        index: None,
+                    blocks.push(CoreContentBlock::ToolUse {
                         id: tool_use_id.clone(),
-                        kind: ToolType::Function,
-                        function: FunctionCall {
-                            name: name.clone(),
-                            arguments: crabllm_core::json::to_string(input).unwrap_or_default(),
-                        },
+                        name: name.clone(),
+                        input: input.clone(),
                     });
                 }
                 ContentBlock::ToolResult { .. } => {}
             }
         }
     }
-
-    let tool_calls_opt = if tool_calls.is_empty() {
-        None
-    } else {
-        Some(tool_calls)
-    };
-
-    let content = if content_text.is_empty() && tool_calls_opt.is_some() {
-        None
-    } else {
-        Some(serde_json::Value::String(content_text))
-    };
 
     ChatCompletionResponse {
         id: String::new(),
@@ -340,12 +306,7 @@ fn translate_response(resp: ConverseResponse, model: &str) -> ChatCompletionResp
             index: 0,
             message: Message {
                 role: Role::Assistant,
-                content,
-                tool_calls: tool_calls_opt,
-                tool_call_id: None,
-                name: None,
-                reasoning_content: None,
-                extra: Default::default(),
+                content: blocks,
             },
             finish_reason: map_stop_reason(&resp.stop_reason),
             logprobs: None,

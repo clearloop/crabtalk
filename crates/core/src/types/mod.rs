@@ -1,13 +1,13 @@
 pub use anthropic::{
     AnthropicContent, AnthropicContentBlock, AnthropicMessage, AnthropicRequest, AnthropicResponse,
     AnthropicSystem, AnthropicTool, AnthropicUsage, DEFAULT_MAX_TOKENS, ThinkingConfig,
-    ToolResultContent,
 };
 pub use audio::AudioSpeechRequest;
 pub use chat::{
     ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice,
-    CompletionTokensDetails, Delta, FinishReason, FunctionCall, FunctionCallDelta, FunctionDef,
-    Message, Role, Stop, Tool, ToolCall, ToolCallDelta, ToolChoice, ToolType, Usage,
+    CompletionTokensDetails, ContentBlock, Delta, FinishReason, FunctionCall, FunctionCallDelta,
+    FunctionDef, Message, Role, Stop, Tool, ToolCall, ToolCallDelta, ToolChoice, ToolResultContent,
+    ToolType, Usage,
 };
 pub use embedding::{
     Embedding, EmbeddingInput, EmbeddingRequest, EmbeddingResponse, EmbeddingUsage,

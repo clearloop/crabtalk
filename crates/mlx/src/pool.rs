@@ -150,7 +150,7 @@ impl MlxPool {
 
     /// Evict a single model. Returns `true` if the slot was present
     /// before the call (i.e. something was actually unloaded).
-    pub(crate) fn evict(&self, model_dir: &str) -> bool {
+    pub fn evict(&self, model_dir: &str) -> bool {
         let Ok(c) = CString::new(model_dir) else {
             return false;
         };

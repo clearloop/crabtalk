@@ -257,7 +257,7 @@ fn validate_provider(name: &str, config: &ProviderConfig) -> Result<(), Error> {
             // Both have a sensible default base_url; nothing to require.
             Ok(())
         }
-        ProviderKind::Anthropic | ProviderKind::Google => {
+        ProviderKind::Anthropic | ProviderKind::Deepseek | ProviderKind::Google => {
             if is_blank(&config.api_key) {
                 return Err(Error::Config(format!(
                     "provider '{name}' ({}) requires an api_key",

@@ -204,74 +204,125 @@ pub enum Stop {
     Multiple(Vec<String>),
 }
 
+/// A content block within a message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(tag = "type")]
+pub enum ContentBlock {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "tool_use")]
+    ToolUse {
+        id: String,
+        name: String,
+        input: serde_json::Value,
+    },
+    #[serde(rename = "tool_result")]
+    ToolResult {
+        tool_use_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        content: ToolResultContent,
+    },
+    #[serde(rename = "thinking")]
+    Thinking {
+        thinking: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
+    #[serde(rename = "image")]
+    Image { source: serde_json::Value },
+}
+
+/// Tool result content: either a plain string or nested content blocks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+#[serde(untagged)]
+pub enum ToolResultContent {
+    Text(String),
+    Blocks(Vec<ContentBlock>),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct Message {
     pub role: Role,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_calls: Option<Vec<ToolCall>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_call_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reasoning_content: Option<String>,
-    #[serde(flatten, default)]
-    #[serde(skip_serializing_if = "serde_json::Map::is_empty")]
-    pub extra: serde_json::Map<String, serde_json::Value>,
+    pub content: Vec<ContentBlock>,
 }
 
 impl Message {
-    fn with_role(role: Role, content: impl Into<String>) -> Self {
+    pub fn user(content: impl Into<String>) -> Self {
         Self {
-            role,
-            content: Some(serde_json::Value::String(content.into())),
-            tool_calls: None,
-            tool_call_id: None,
-            name: None,
-            reasoning_content: None,
-            extra: serde_json::Map::new(),
+            role: Role::User,
+            content: vec![ContentBlock::Text {
+                text: content.into(),
+            }],
         }
     }
 
-    /// Build a `Message` with role `User` and the given text content.
-    pub fn user(content: impl Into<String>) -> Self {
-        Self::with_role(Role::User, content)
-    }
-
-    /// Build a `Message` with role `Assistant` and the given text content.
     pub fn assistant(content: impl Into<String>) -> Self {
-        Self::with_role(Role::Assistant, content)
+        Self {
+            role: Role::Assistant,
+            content: vec![ContentBlock::Text {
+                text: content.into(),
+            }],
+        }
     }
 
-    /// Build a `Message` with role `System` and the given text content.
     pub fn system(content: impl Into<String>) -> Self {
-        Self::with_role(Role::System, content)
+        Self {
+            role: Role::System,
+            content: vec![ContentBlock::Text {
+                text: content.into(),
+            }],
+        }
     }
 
-    /// Build a `Message` with role `Tool`, setting `tool_call_id` and `name`.
     pub fn tool(
-        tool_call_id: impl Into<String>,
+        tool_use_id: impl Into<String>,
         name: impl Into<String>,
         content: impl Into<String>,
     ) -> Self {
-        let mut msg = Self::with_role(Role::Tool, content);
-        msg.tool_call_id = Some(tool_call_id.into());
-        msg.name = Some(name.into());
-        msg
+        Self {
+            role: Role::User,
+            content: vec![ContentBlock::ToolResult {
+                tool_use_id: tool_use_id.into(),
+                name: Some(name.into()),
+                content: ToolResultContent::Text(content.into()),
+            }],
+        }
     }
 
-    /// Return the text view of `content` when it is a non-empty JSON string.
-    ///
-    /// Returns `None` for `null`, empty strings, and non-string variants
-    /// (e.g. multimodal arrays).
+    /// Concatenated text from all Text blocks, or `None` if empty.
     pub fn content_str(&self) -> Option<&str> {
-        self.content
-            .as_ref()
-            .and_then(serde_json::Value::as_str)
-            .filter(|s| !s.is_empty())
+        for block in &self.content {
+            if let ContentBlock::Text { text } = block
+                && !text.is_empty()
+            {
+                return Some(text.as_str());
+            }
+        }
+        None
+    }
+
+    /// Iterator over tool-use blocks.
+    pub fn tool_uses(&self) -> impl Iterator<Item = (&str, &str, &serde_json::Value)> {
+        self.content.iter().filter_map(|b| match b {
+            ContentBlock::ToolUse { id, name, input } => Some((id.as_str(), name.as_str(), input)),
+            _ => None,
+        })
+    }
+
+    /// The thinking content, if any.
+    pub fn thinking(&self) -> Option<&str> {
+        for block in &self.content {
+            if let ContentBlock::Thinking { thinking, .. } = block
+                && !thinking.is_empty()
+            {
+                return Some(thinking.as_str());
+            }
+        }
+        None
     }
 }
 
@@ -347,30 +398,13 @@ impl ChatCompletionResponse {
     }
 
     /// Text content from the first choice's message, if non-empty.
-    ///
-    /// Empty strings collapse to `None` (via `Message::content_str`).
     pub fn content(&self) -> Option<&str> {
         self.choices.first()?.message.content_str()
     }
 
     /// Reasoning content from the first choice's message, if non-empty.
-    ///
-    /// Empty strings collapse to `None`.
     pub fn reasoning_content(&self) -> Option<&str> {
-        self.choices
-            .first()?
-            .message
-            .reasoning_content
-            .as_deref()
-            .filter(|s| !s.is_empty())
-    }
-
-    /// Tool calls from the first choice's message. Empty slice if none.
-    pub fn tool_calls(&self) -> &[ToolCall] {
-        self.choices
-            .first()
-            .and_then(|c| c.message.tool_calls.as_deref())
-            .unwrap_or(&[])
+        self.choices.first()?.message.thinking()
     }
 
     /// Finish reason from the first choice, if present.
