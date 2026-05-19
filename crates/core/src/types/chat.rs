@@ -296,10 +296,10 @@ impl Message {
     /// Concatenated text from all Text blocks, or `None` if empty.
     pub fn content_str(&self) -> Option<&str> {
         for block in &self.content {
-            if let ContentBlock::Text { text } = block {
-                if !text.is_empty() {
-                    return Some(text.as_str());
-                }
+            if let ContentBlock::Text { text } = block
+                && !text.is_empty()
+            {
+                return Some(text.as_str());
             }
         }
         None
@@ -316,10 +316,10 @@ impl Message {
     /// The thinking content, if any.
     pub fn thinking(&self) -> Option<&str> {
         for block in &self.content {
-            if let ContentBlock::Thinking { thinking, .. } = block {
-                if !thinking.is_empty() {
-                    return Some(thinking.as_str());
-                }
+            if let ContentBlock::Thinking { thinking, .. } = block
+                && !thinking.is_empty()
+            {
+                return Some(thinking.as_str());
             }
         }
         None
