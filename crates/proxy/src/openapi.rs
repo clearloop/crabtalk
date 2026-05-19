@@ -1,19 +1,15 @@
 use crabllm_core::{
-    AnthropicContent, AnthropicMessage, AnthropicRequest, AnthropicResponse, AnthropicSystem,
-    AnthropicTool, AnthropicUsage, AudioSpeechRequest, ChatCompletionChunk, ChatCompletionRequest,
-    ChatCompletionResponse, Choice, ChunkChoice, CompletionTokensDetails, Delta, Embedding,
-    EmbeddingInput, EmbeddingRequest, EmbeddingResponse, EmbeddingUsage, FinishReason,
-    FunctionCall, FunctionCallDelta, FunctionDef, ImageRequest, KeyRateLimit, Message, Model,
-    ModelList, PricingConfig, ProviderKind, Role, Stop, ThinkingConfig, Tool, ToolCall,
-    ToolCallDelta, ToolChoice, ToolType, Usage,
+    AnthropicRequest, AnthropicResponse, AudioSpeechRequest, ChatCompletionChunk,
+    ChatCompletionRequest, ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse,
+    ImageRequest, ModelList,
 };
-use utoipa::OpenApi;
+use utoipa::{PartialSchema, ToSchema};
 use utoipa::openapi::{
-    ContentBuilder, HttpMethod, InfoBuilder, PathItem, Paths, PathsBuilder, Ref, RefOr, Required,
-    ResponseBuilder, Responses, ResponsesBuilder, Tag,
+    ContentBuilder, HttpMethod, InfoBuilder, PathItem, Paths, PathsBuilder, Ref,
+    RefOr, Required, ResponseBuilder, Responses, ResponsesBuilder, Tag,
     path::{OperationBuilder, ParameterBuilder, ParameterIn},
     request_body::{RequestBody, RequestBodyBuilder},
-    schema::{KnownFormat, ObjectBuilder, SchemaFormat, SchemaType, Type},
+    schema::{ComponentsBuilder, KnownFormat, ObjectBuilder, SchemaFormat, SchemaType, Type},
     security::{HttpAuthScheme, HttpBuilder, SecurityRequirement, SecurityScheme},
 };
 
@@ -27,56 +23,43 @@ const TAG_ADMIN_PROVIDERS: &str = "Admin / Providers";
 const TAG_ADMIN_USAGE: &str = "Admin / Usage";
 const TAG_INFRA: &str = "Infrastructure";
 
-#[derive(OpenApi)]
-#[openapi(components(schemas(
-    ChatCompletionRequest,
-    ChatCompletionResponse,
-    ChatCompletionChunk,
-    Message,
-    ToolCall,
-    FunctionCall,
-    Tool,
-    FunctionDef,
-    ToolType,
-    Choice,
-    Usage,
-    CompletionTokensDetails,
-    ChunkChoice,
-    Delta,
-    ToolCallDelta,
-    FunctionCallDelta,
-    Role,
-    FinishReason,
-    ToolChoice,
-    Stop,
-    AnthropicRequest,
-    AnthropicResponse,
-    AnthropicMessage,
-    AnthropicContent,
-    AnthropicSystem,
-    AnthropicTool,
-    AnthropicUsage,
-    ThinkingConfig,
-    EmbeddingRequest,
-    EmbeddingResponse,
-    Embedding,
-    EmbeddingUsage,
-    EmbeddingInput,
-    ImageRequest,
-    AudioSpeechRequest,
-    Model,
-    ModelList,
-    PricingConfig,
-    KeyRateLimit,
-    ProviderKind,
-    CreateKeyRequest,
-    KeyResponse,
-    KeySummary,
-    CreateProviderRequest,
-    ProviderSummary,
-    UsageEntry,
-)))]
-struct Components;
+macro_rules! collect_schemas {
+    ($($ty:ty),* $(,)?) => {{
+        let mut schemas = Vec::<(String, utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>)>::new();
+        $(
+            <$ty as ToSchema>::schemas(&mut schemas);
+            schemas.push((<$ty as ToSchema>::name().into(), <$ty as PartialSchema>::schema()));
+        )*
+        schemas
+    }};
+}
+
+fn public_schemas() -> Vec<(String, RefOr<utoipa::openapi::schema::Schema>)> {
+    collect_schemas!(
+        ChatCompletionRequest,
+        ChatCompletionResponse,
+        ChatCompletionChunk,
+        AnthropicRequest,
+        AnthropicResponse,
+        EmbeddingRequest,
+        EmbeddingResponse,
+        ImageRequest,
+        AudioSpeechRequest,
+        ModelList,
+        UsageEntry,
+    )
+}
+
+fn admin_schemas() -> Vec<(String, RefOr<utoipa::openapi::schema::Schema>)> {
+    collect_schemas!(
+        CreateKeyRequest,
+        KeyResponse,
+        KeySummary,
+        CreateProviderRequest,
+        ProviderSummary,
+        UsageEntry,
+    )
+}
 
 fn op(tag: &str, summary: &str) -> OperationBuilder {
     OperationBuilder::new().summary(Some(summary)).tag(tag)
@@ -233,7 +216,7 @@ fn empty_ok(desc: &str) -> Responses {
 /// useful when merging into a host spec that groups the gateway under
 /// a different tag name.
 pub fn public(api_tag: Option<&str>) -> utoipa::openapi::OpenApi {
-    let mut doc = base();
+    let mut doc = base(public_schemas());
     doc.paths = public_paths();
     if let Some(tag) = api_tag {
         retag(&mut doc, tag);
@@ -245,7 +228,7 @@ pub fn public(api_tag: Option<&str>) -> utoipa::openapi::OpenApi {
 /// `/v1/cache`). Embedders that replace the admin surface with their own
 /// will skip this; standalone deployments serve it alongside [`public`].
 pub fn admin() -> utoipa::openapi::OpenApi {
-    let mut doc = base();
+    let mut doc = base(admin_schemas());
     doc.paths = admin_paths();
     doc
 }
@@ -253,7 +236,7 @@ pub fn admin() -> utoipa::openapi::OpenApi {
 /// Spec for the infra surface only (`/health`, `/metrics`). Embedders
 /// usually have their own probes and will skip this.
 pub fn infra() -> utoipa::openapi::OpenApi {
-    let mut doc = base();
+    let mut doc = base(vec![]);
     doc.paths = infra_paths();
     doc
 }
@@ -261,7 +244,9 @@ pub fn infra() -> utoipa::openapi::OpenApi {
 /// Combined spec: [`public`] + [`admin`] + [`infra`]. What standalone
 /// crabllm deployments serve at `/openapi.json`.
 pub fn spec() -> utoipa::openapi::OpenApi {
-    let mut doc = base();
+    let mut schemas = public_schemas();
+    schemas.extend(admin_schemas());
+    let mut doc = base(schemas);
     let mut all = public_paths();
     for (path, item) in admin_paths().paths {
         all.paths.insert(path, item);
@@ -273,10 +258,17 @@ pub fn spec() -> utoipa::openapi::OpenApi {
     doc
 }
 
-/// Shared scaffolding (info, tags, security, components) — every spec
-/// function starts from this and then sets its own paths.
-fn base() -> utoipa::openapi::OpenApi {
-    let mut doc = <Components as OpenApi>::openapi();
+fn base(schemas: Vec<(String, RefOr<utoipa::openapi::schema::Schema>)>) -> utoipa::openapi::OpenApi {
+    let components = ComponentsBuilder::new()
+        .schemas_from_iter(schemas)
+        .security_scheme(
+            "BearerAuth",
+            SecurityScheme::Http(HttpBuilder::new().scheme(HttpAuthScheme::Bearer).build()),
+        )
+        .build();
+    let mut doc = utoipa::openapi::OpenApiBuilder::new()
+        .components(Some(components))
+        .build();
     doc.info = InfoBuilder::new()
         .title("CrabLLM API")
         .version(env!("CARGO_PKG_VERSION"))
@@ -293,14 +285,6 @@ fn base() -> utoipa::openapi::OpenApi {
         "BearerAuth",
         Vec::<String>::new(),
     )]);
-
-    let components = doc
-        .components
-        .get_or_insert_with(utoipa::openapi::Components::default);
-    components.security_schemes.insert(
-        "BearerAuth".to_string(),
-        SecurityScheme::Http(HttpBuilder::new().scheme(HttpAuthScheme::Bearer).build()),
-    );
 
     doc
 }
