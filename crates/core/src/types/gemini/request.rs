@@ -1,7 +1,7 @@
 use crate::types::gemini::GeminiContent;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GeminiRequest {
     pub contents: Vec<GeminiContent>,
@@ -13,13 +13,13 @@ pub struct GeminiRequest {
     pub tools: Option<Vec<GeminiToolDef>>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GeminiToolDef {
     pub function_declarations: Vec<GeminiFunctionDecl>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub struct GeminiFunctionDecl {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -28,7 +28,7 @@ pub struct GeminiFunctionDecl {
     pub parameters: Option<serde_json::Value>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GenerationConfig {
     #[serde(skip_serializing_if = "Option::is_none")]

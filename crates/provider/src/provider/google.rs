@@ -50,6 +50,47 @@ impl Provider for GoogleProvider {
         chat_req.stream = Some(true);
         self.chat_completion_stream(&chat_req).await
     }
+
+    fn is_gemini_compat(&self) -> bool {
+        true
+    }
+
+    async fn gemini_generate_content_raw(
+        &self,
+        model: &str,
+        raw_body: bytes::Bytes,
+    ) -> Result<bytes::Bytes, Error> {
+        let url = format!("{BASE_URL}/models/{model}:generateContent");
+        let headers = [
+            ("x-goog-api-key", self.api_key.as_str()),
+            ("content-type", "application/json"),
+        ];
+        let resp = self
+            .client
+            .post(&url, &headers, raw_body)
+            .await
+            .map_err(|e| Error::Internal(e.to_string()))?;
+        if resp.status >= 400 {
+            return Err(Error::Provider {
+                status: resp.status,
+                body: String::from_utf8_lossy(&resp.body).into_owned(),
+            });
+        }
+        Ok(resp.body)
+    }
+
+    async fn gemini_generate_content_stream_raw(
+        &self,
+        model: &str,
+        raw_body: bytes::Bytes,
+    ) -> Result<ByteStream, Error> {
+        let url = format!("{BASE_URL}/models/{model}:streamGenerateContent?alt=sse");
+        let headers = [
+            ("x-goog-api-key", self.api_key.as_str()),
+            ("content-type", "application/json"),
+        ];
+        self.client.post_stream(&url, &headers, raw_body).await
+    }
 }
 
 const BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";

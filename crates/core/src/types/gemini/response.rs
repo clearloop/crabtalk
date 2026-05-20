@@ -1,8 +1,8 @@
 use crate::types::gemini::GeminiContent;
 use crate::types::openai::{FinishReason, Usage};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GeminiResponse {
     #[serde(default)]
@@ -11,7 +11,7 @@ pub struct GeminiResponse {
     pub usage_metadata: Option<GeminiUsage>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum GeminiFinishReason {
     Stop,
@@ -26,7 +26,7 @@ pub enum GeminiFinishReason {
     Other,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GeminiCandidate {
     #[serde(default)]
@@ -35,7 +35,7 @@ pub struct GeminiCandidate {
     pub finish_reason: Option<GeminiFinishReason>,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GeminiUsage {
     #[serde(default)]
