@@ -538,6 +538,7 @@ dependencies = [
  "serde_json",
  "sonic-rs",
  "toml",
+ "tracing",
  "utoipa",
 ]
 
