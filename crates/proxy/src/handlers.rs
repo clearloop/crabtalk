@@ -1050,6 +1050,54 @@ pub(crate) async fn try_stream_with_retries<P: Provider>(
     Err(last_err)
 }
 
+/// Retry a raw Anthropic streaming request on a single deployment.
+pub(crate) async fn try_anthropic_stream_with_retries<P: Provider>(
+    deployment: &Deployment<P>,
+    raw_body: bytes::Bytes,
+) -> Result<crabllm_core::ByteStream, crabllm_core::Error> {
+    let mut last_err;
+    match with_timeout(
+        deployment.timeout,
+        deployment
+            .provider
+            .anthropic_messages_stream_raw(raw_body.clone()),
+    )
+    .await
+    {
+        Ok(stream) => return Ok(stream),
+        Err(e) => {
+            if !e.is_transient() || deployment.max_retries == 0 {
+                return Err(e);
+            }
+            last_err = e;
+        }
+    }
+
+    let mut backoff = Duration::from_millis(100);
+    for _ in 0..deployment.max_retries {
+        tokio::time::sleep(jittered(backoff)).await;
+        backoff *= 2;
+        match with_timeout(
+            deployment.timeout,
+            deployment
+                .provider
+                .anthropic_messages_stream_raw(raw_body.clone()),
+        )
+        .await
+        {
+            Ok(stream) => return Ok(stream),
+            Err(e) => {
+                if !e.is_transient() {
+                    return Err(e);
+                }
+                last_err = e;
+            }
+        }
+    }
+
+    Err(last_err)
+}
+
 /// Retry an embedding request on a single deployment.
 async fn try_embedding_with_retries<P: Provider>(
     deployment: &Deployment<P>,

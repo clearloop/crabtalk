@@ -294,6 +294,25 @@ pub async fn anthropic_messages_raw(
     Ok(resp.body)
 }
 
+/// Stream raw Anthropic SSE bytes from the Messages API.
+pub async fn anthropic_messages_stream(
+    client: &HttpClient,
+    base_url: &str,
+    api_key: &str,
+    raw_body: Bytes,
+) -> Result<ByteStream, Error> {
+    let url = format!("{}/messages", base_url.trim_end_matches('/'));
+    let auth = auth_headers(api_key);
+    let mut headers: Vec<(&str, &str)> = vec![
+        ("anthropic-version", "2023-06-01"),
+        ("content-type", "application/json"),
+    ];
+    for (k, v) in &auth {
+        headers.push((k, v.as_str()));
+    }
+    client.post_stream(&url, &headers, raw_body).await
+}
+
 pub async fn chat_completion(
     client: &HttpClient,
     base_url: &str,

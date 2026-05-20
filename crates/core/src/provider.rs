@@ -1,6 +1,7 @@
 use crate::{
-    AudioSpeechRequest, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse,
-    EmbeddingRequest, EmbeddingResponse, Error, ImageRequest, MultipartField,
+    AnthropicRequest, AnthropicResponse, AudioSpeechRequest, ChatCompletionChunk,
+    ChatCompletionRequest, ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse, Error,
+    ImageRequest, MultipartField,
 };
 use bytes::Bytes;
 use futures_core::Stream;
@@ -10,6 +11,9 @@ use std::{future::Future, pin::Pin};
 /// trait can return a uniform stream type without each implementor leaking
 /// its concrete combinator chain through an associated type.
 pub type BoxStream<'a, T> = Pin<Box<dyn Stream<Item = T> + Send + 'a>>;
+
+/// Raw byte stream for SSE passthrough.
+pub type ByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>;
 
 /// The dispatch surface every provider implementation satisfies.
 ///
@@ -42,6 +46,21 @@ pub trait Provider: Send + Sync {
         &self,
         request: &ChatCompletionRequest,
     ) -> impl Future<Output = Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error>> + Send;
+
+    fn anthropic_messages(
+        &self,
+        _request: &AnthropicRequest,
+    ) -> impl Future<Output = Result<AnthropicResponse, Error>> + Send {
+        async { Err(Error::not_implemented("anthropic_messages")) }
+    }
+
+    fn anthropic_messages_stream(
+        &self,
+        _request: &AnthropicRequest,
+    ) -> impl Future<Output = Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error>> + Send
+    {
+        async { Err(Error::not_implemented("anthropic_messages_stream")) }
+    }
 
     fn embedding(
         &self,
@@ -110,5 +129,13 @@ pub trait Provider: Send + Sync {
         _raw_body: Bytes,
     ) -> impl Future<Output = Result<Bytes, Error>> + Send {
         async { Err(Error::not_implemented("anthropic_messages_raw")) }
+    }
+
+    /// Stream raw Anthropic SSE bytes from an Anthropic-compatible endpoint.
+    fn anthropic_messages_stream_raw(
+        &self,
+        _raw_body: Bytes,
+    ) -> impl Future<Output = Result<crate::ByteStream, Error>> + Send {
+        async { Err(Error::not_implemented("anthropic_messages_stream_raw")) }
     }
 }

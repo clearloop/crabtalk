@@ -5,7 +5,7 @@ pub use config::{
 pub use error::{ApiError, ApiErrorBody, Error};
 pub use extension::{Extension, ExtensionError, RequestContext};
 pub use model_info::ModelInfo;
-pub use provider::{BoxStream, Provider};
+pub use provider::{BoxStream, ByteStream, Provider};
 pub use storage::{BoxFuture, KvPairs, PREFIX_LEN, Prefix, Storage, storage_key};
 pub use types::{
     AnthropicContent, AnthropicContentBlock, AnthropicMessage, AnthropicRequest, AnthropicResponse,

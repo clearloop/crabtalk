@@ -2,7 +2,7 @@ use arc_swap::ArcSwap;
 use bytes::Bytes;
 use clap::{Parser, Subcommand};
 use crabllm_core::{
-    AudioSpeechRequest, BoxStream, ChatCompletionChunk, ChatCompletionRequest,
+    AudioSpeechRequest, BoxStream, ByteStream, ChatCompletionChunk, ChatCompletionRequest,
     ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse, Error, Extension, GatewayConfig,
     ImageRequest, MultipartField, Provider, Storage,
 };
@@ -286,6 +286,12 @@ impl Provider for Dispatch {
     async fn anthropic_messages_raw(&self, raw_body: Bytes) -> Result<Bytes, Error> {
         match self {
             Self::Remote(p) => p.anthropic_messages_raw(raw_body).await,
+        }
+    }
+
+    async fn anthropic_messages_stream_raw(&self, raw_body: Bytes) -> Result<ByteStream, Error> {
+        match self {
+            Self::Remote(p) => p.anthropic_messages_stream_raw(raw_body).await,
         }
     }
 }

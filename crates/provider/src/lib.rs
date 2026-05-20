@@ -580,4 +580,32 @@ impl Provider for RemoteProvider {
             _ => Err(Error::not_implemented("anthropic_messages_raw")),
         }
     }
+
+    async fn anthropic_messages_stream_raw(&self, raw_body: Bytes) -> Result<ByteStream, Error> {
+        match self {
+            RemoteProvider::Anthropic {
+                client,
+                base_url,
+                api_key,
+            } => {
+                provider::anthropic::anthropic_messages_stream(client, base_url, api_key, raw_body)
+                    .await
+            }
+            RemoteProvider::Deepseek {
+                client,
+                anthropic_base_url,
+                api_key,
+                ..
+            } => {
+                provider::deepseek::anthropic_messages_stream(
+                    client,
+                    anthropic_base_url,
+                    api_key,
+                    raw_body,
+                )
+                .await
+            }
+            _ => Err(Error::not_implemented("anthropic_messages_stream")),
+        }
+    }
 }
