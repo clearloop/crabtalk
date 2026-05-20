@@ -3,11 +3,12 @@ use crate::{ByteStream, HttpClient};
 use bytes::{Buf, BytesMut};
 use crabllm_core::{
     AnthropicRequest, AnthropicResponse, BoxStream, ChatCompletionChunk, ChatCompletionRequest,
-    ChatCompletionResponse, Choice, ChunkChoice, ContentBlock, Delta, Error, FinishReason,
-    FunctionCallDelta, Message, Provider, Role, ToolCallDelta, ToolResultContent, Usage,
+    ChatCompletionResponse, Choice, ChunkChoice, ContentBlock, Delta, Error, FunctionCallDelta,
+    GeminiCandidate, GeminiContent, GeminiFunctionCall, GeminiFunctionDecl, GeminiFunctionResponse,
+    GeminiPart, GeminiRequest, GeminiResponse, GeminiRole, GeminiToolDef, GenerationConfig,
+    Message, Provider, Role, ToolCallDelta, ToolResultContent, Usage,
 };
 use futures::stream::{self, Stream, StreamExt};
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone)]
 pub struct GoogleProvider {
@@ -96,136 +97,6 @@ fn is_gemini_3_or_newer(model: &str) -> bool {
     // Read leading digits; a major version >= 3 means signature-required.
     let major_str: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
     major_str.parse::<u32>().map(|n| n >= 3).unwrap_or(false)
-}
-
-// ── Gemini-native request types ──
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GeminiRequest {
-    contents: Vec<GeminiContent>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    system_instruction: Option<GeminiContent>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    generation_config: Option<GenerationConfig>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tools: Option<Vec<GeminiToolDef>>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy)]
-#[serde(rename_all = "lowercase")]
-enum GeminiRole {
-    User,
-    Model,
-}
-
-#[derive(Serialize, Deserialize)]
-struct GeminiContent {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    role: Option<GeminiRole>,
-    parts: Vec<GeminiPart>,
-}
-
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GeminiPart {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    text: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    function_call: Option<GeminiFunctionCall>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    function_response: Option<GeminiFunctionResponse>,
-    /// Gemini 2.5+ thinking-model marker for `functionCall` parts —
-    /// must be echoed back unchanged on follow-up turns.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    thought_signature: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-struct GeminiFunctionCall {
-    name: String,
-    #[serde(default)]
-    args: serde_json::Value,
-}
-
-#[derive(Serialize, Deserialize)]
-struct GeminiFunctionResponse {
-    name: String,
-    response: serde_json::Value,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GeminiToolDef {
-    function_declarations: Vec<GeminiFunctionDecl>,
-}
-
-#[derive(Serialize)]
-struct GeminiFunctionDecl {
-    name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    parameters: Option<serde_json::Value>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GenerationConfig {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    max_output_tokens: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    temperature: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    top_p: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    stop_sequences: Option<Vec<String>>,
-}
-
-// ── Gemini-native response types ──
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GeminiResponse {
-    #[serde(default)]
-    candidates: Vec<GeminiCandidate>,
-    #[serde(default)]
-    usage_metadata: Option<GeminiUsage>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-enum GeminiFinishReason {
-    Stop,
-    MaxTokens,
-    Safety,
-    Recitation,
-    Blocklist,
-    ProhibitedContent,
-    Spii,
-    MalformedFunctionCall,
-    #[serde(other)]
-    Other,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GeminiCandidate {
-    #[serde(default)]
-    content: Option<GeminiContent>,
-    #[serde(default)]
-    finish_reason: Option<GeminiFinishReason>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct GeminiUsage {
-    #[serde(default)]
-    prompt_token_count: u32,
-    #[serde(default)]
-    candidates_token_count: u32,
-    #[serde(default)]
-    total_token_count: u32,
 }
 
 // ── Translation ──
@@ -392,37 +263,6 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
         system_instruction,
         generation_config,
         tools,
-    }
-}
-
-impl From<&GeminiFinishReason> for FinishReason {
-    fn from(r: &GeminiFinishReason) -> Self {
-        match r {
-            GeminiFinishReason::Stop => FinishReason::Stop,
-            GeminiFinishReason::MaxTokens => FinishReason::Length,
-            GeminiFinishReason::Safety
-            | GeminiFinishReason::Blocklist
-            | GeminiFinishReason::ProhibitedContent
-            | GeminiFinishReason::Spii => FinishReason::ContentFilter,
-            GeminiFinishReason::Recitation => FinishReason::Custom("recitation".into()),
-            GeminiFinishReason::MalformedFunctionCall => {
-                FinishReason::Custom("malformed_function_call".into())
-            }
-            GeminiFinishReason::Other => FinishReason::Custom("other".into()),
-        }
-    }
-}
-
-impl From<GeminiUsage> for Usage {
-    fn from(u: GeminiUsage) -> Self {
-        Usage {
-            prompt_tokens: u.prompt_token_count,
-            completion_tokens: u.candidates_token_count,
-            total_tokens: u.total_token_count,
-            completion_tokens_details: None,
-            prompt_cache_hit_tokens: None,
-            prompt_cache_miss_tokens: None,
-        }
     }
 }
 

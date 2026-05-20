@@ -6,6 +6,11 @@ pub use audio::AudioSpeechRequest;
 pub use embedding::{
     Embedding, EmbeddingInput, EmbeddingRequest, EmbeddingResponse, EmbeddingUsage,
 };
+pub use gemini::{
+    GeminiCandidate, GeminiContent, GeminiFinishReason, GeminiFunctionCall, GeminiFunctionDecl,
+    GeminiFunctionResponse, GeminiPart, GeminiRequest, GeminiResponse, GeminiRole, GeminiToolDef,
+    GeminiUsage, GenerationConfig,
+};
 pub use image::ImageRequest;
 pub use model::{Model, ModelList};
 pub use multipart::MultipartField;
@@ -19,6 +24,7 @@ pub use openai::{
 mod anthropic;
 mod audio;
 mod embedding;
+mod gemini;
 mod image;
 mod model;
 mod multipart;

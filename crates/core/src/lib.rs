@@ -13,8 +13,11 @@ pub use types::{
     ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice, CompletionTokensDetails,
     ContentBlock, DEFAULT_MAX_TOKENS, Delta, Embedding, EmbeddingInput, EmbeddingRequest,
     EmbeddingResponse, EmbeddingUsage, FinishReason, FunctionCall, FunctionCallDelta, FunctionDef,
-    ImageRequest, Message, Model, ModelList, MultipartField, Role, Stop, ThinkingConfig, Tool,
-    ToolCall, ToolCallDelta, ToolChoice, ToolResultContent, ToolType, Usage,
+    GeminiCandidate, GeminiContent, GeminiFinishReason, GeminiFunctionCall, GeminiFunctionDecl,
+    GeminiFunctionResponse, GeminiPart, GeminiRequest, GeminiResponse, GeminiRole, GeminiToolDef,
+    GeminiUsage, GenerationConfig, ImageRequest, Message, Model, ModelList, MultipartField, Role,
+    Stop, ThinkingConfig, Tool, ToolCall, ToolCallDelta, ToolChoice, ToolResultContent, ToolType,
+    Usage,
 };
 
 mod config;
