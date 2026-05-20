@@ -22,7 +22,7 @@ http2 = [
 native-tls = ["dep:hyper-tls", "dep:native-tls", "reqwest?/native-tls"]
 rustls = ["dep:hyper-rustls", "reqwest?/rustls"]
 sonic = ["crabllm-core/sonic"]
-provider-bedrock = ["hmac", "sha2"]
+bedrock = ["hmac", "sha2"]
 
 [dependencies]
 crabllm-core.workspace = true

@@ -1,17 +1,18 @@
 //! HTTP handler for `POST /v1/messages` (Anthropic-compatible).
 //!
-//! Translates the inbound `AnthropicRequest` to the internal
-//! `ChatCompletionRequest`, dispatches via the same provider pipeline the
-//! OpenAI `/v1/chat/completions` handler uses, then translates the response
-//! (or streaming chunk sequence) back to Anthropic's wire format.
+//! For Anthropic-compatible upstreams (Anthropic, DeepSeek), requests are
+//! forwarded as raw Anthropic-format bytes — no format translation. For
+//! other upstreams, the request is translated to the internal OpenAI format,
+//! dispatched, and the response translated back.
 
 use crate::{
     AppState,
     anthropic::{from_chat_completion, to_anthropic_sse, to_chat_completion},
     auth::Principal,
     handlers::{
-        emit_usage, emit_usage_error, error_response, error_status, record_duration, record_tokens,
-        try_chat_with_retries, try_stream_with_retries,
+        RequestOutcome, emit_usage, emit_usage_error, error_response, error_status,
+        record_duration, record_tokens, try_anthropic_stream_with_retries, try_chat_with_retries,
+        try_stream_with_retries,
     },
 };
 use axum::{
@@ -23,6 +24,7 @@ use axum::{
         sse::{Event, Sse},
     },
 };
+use bytes::{Buf, BytesMut};
 use crabllm_core::{ApiError, Provider, RequestContext, Storage};
 use futures::StreamExt;
 use std::sync::{
@@ -39,6 +41,19 @@ struct AnthropicPeek {
     model: String,
     #[serde(default)]
     stream: Option<bool>,
+}
+
+#[allow(clippy::result_large_err)]
+fn deserialize_request(raw_body: &[u8]) -> Result<crabllm_core::ChatCompletionRequest, Response> {
+    let anthropic_req: crabllm_core::AnthropicRequest = crabllm_core::json::from_slice(raw_body)
+        .map_err(|e| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ApiError::new(e.to_string(), "invalid_request_error")),
+            )
+                .into_response()
+        })?;
+    Ok(to_chat_completion(anthropic_req))
 }
 
 /// POST /v1/messages
@@ -86,21 +101,6 @@ where
         return handle_raw_anthropic(&state, principal, &model, &deployments, raw_body).await;
     }
 
-    // Full deserialization + translation for streaming, extensions, or
-    // non-Anthropic upstreams.
-    let anthropic_req: crabllm_core::AnthropicRequest =
-        match crabllm_core::json::from_slice(&raw_body) {
-            Ok(r) => r,
-            Err(e) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(ApiError::new(e.to_string(), "invalid_request_error")),
-                )
-                    .into_response();
-            }
-        };
-    let mut request = to_chat_completion(anthropic_req);
-
     let provider_name = registry
         .provider_name(&model)
         .unwrap_or_default()
@@ -126,13 +126,32 @@ where
     }
 
     if is_stream {
-        request
-            .extra
-            .entry("stream_options".to_string())
-            .or_insert(serde_json::json!({ "include_usage": true }));
-
         let mut last_err = None;
         for deployment in &deployments {
+            // Raw Anthropic streaming for compatible providers — no format
+            // translation, the upstream speaks Anthropic SSE natively.
+            if deployment.provider.is_anthropic_compat() {
+                match try_anthropic_stream_with_retries(deployment, raw_body.clone()).await {
+                    Ok(byte_stream) => {
+                        return raw_anthropic_stream_response(byte_stream, &state, ctx);
+                    }
+                    Err(e) => {
+                        last_err = Some(e);
+                        continue;
+                    }
+                }
+            }
+
+            // Translated streaming for non-compatible providers — deserialize
+            // on first use so anthropic-compat paths never pay this cost.
+            let mut request = match deserialize_request(&raw_body) {
+                Ok(r) => r,
+                Err(resp) => return resp,
+            };
+            request
+                .extra
+                .entry("stream_options".to_string())
+                .or_insert(serde_json::json!({ "include_usage": true }));
             match try_stream_with_retries(deployment, &request).await {
                 Ok(stream) => {
                     let extensions = state.extensions.clone();
@@ -140,12 +159,14 @@ where
                     let errored = Arc::new(AtomicBool::new(false));
                     let tokens_in = Arc::new(AtomicU32::new(0));
                     let tokens_out = Arc::new(AtomicU32::new(0));
+                    let cache_hit = Arc::new(AtomicU32::new(0));
                     let first_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
                     let ctx_done = ctx.clone();
                     let errored_done = errored.clone();
                     let tokens_in_done = tokens_in.clone();
                     let tokens_out_done = tokens_out.clone();
+                    let cache_hit_done = cache_hit.clone();
                     let first_error_done = first_error.clone();
 
                     let observed = stream.then(move |result| {
@@ -154,6 +175,7 @@ where
                         let errored = errored.clone();
                         let tokens_in = tokens_in.clone();
                         let tokens_out = tokens_out.clone();
+                        let cache_hit = cache_hit.clone();
                         let first_error = first_error.clone();
                         async move {
                             match &result {
@@ -167,6 +189,10 @@ where
                                         tokens_in.store(usage.prompt_tokens, Ordering::Relaxed);
                                         tokens_out
                                             .store(usage.completion_tokens, Ordering::Relaxed);
+                                        cache_hit.store(
+                                            usage.prompt_cache_hit_tokens.unwrap_or(0),
+                                            Ordering::Relaxed,
+                                        );
                                     }
                                     for ext in extensions.iter() {
                                         ext.on_chunk(&ctx, chunk).await;
@@ -200,8 +226,6 @@ where
                             )
                         }
                         Err(e) => {
-                            // Anthropic documents `api_error` / `overloaded_error`
-                            // rather than `server_error` in the enum.
                             let json = crabllm_core::json::to_string(&serde_json::json!({
                                 "type": "error",
                                 "error": {
@@ -214,9 +238,6 @@ where
                         }
                     });
 
-                    // Wrap the stream so that emit_usage/record_duration run
-                    // exactly once, when the wire stream drains — without
-                    // putting a spurious SSE frame on the wire.
                     let finalized = futures::stream::unfold(
                         (
                             Box::pin(sse_stream),
@@ -225,6 +246,7 @@ where
                                 ctx_done,
                                 tokens_in_done,
                                 tokens_out_done,
+                                cache_hit_done,
                                 errored_done,
                                 first_error_done,
                             )),
@@ -233,7 +255,7 @@ where
                             match inner.next().await {
                                 Some(item) => Some((item, (inner, slot))),
                                 None => {
-                                    if let Some((state, ctx, ti, to, er, fe)) = slot.take() {
+                                    if let Some((state, ctx, ti, to, ch, er, fe)) = slot.take() {
                                         let errored = er.load(Ordering::Relaxed);
                                         record_duration(&ctx, if errored { "5xx" } else { "2xx" });
                                         let error = fe.lock().unwrap().take();
@@ -242,10 +264,13 @@ where
                                             &state,
                                             &ctx,
                                             ENDPOINT,
-                                            ti.load(Ordering::Relaxed),
-                                            to.load(Ordering::Relaxed),
-                                            status,
-                                            error,
+                                            RequestOutcome {
+                                                tokens_in: ti.load(Ordering::Relaxed),
+                                                tokens_out: to.load(Ordering::Relaxed),
+                                                cache_hit_tokens: ch.load(Ordering::Relaxed),
+                                                status,
+                                                error,
+                                            },
                                         );
                                     }
                                     None
@@ -272,10 +297,11 @@ where
         return error_response(e);
     }
 
-    // Non-streaming: cache first. A cache hit whose shape can't be translated
-    // (missing usage, zero choices) falls through to live dispatch rather than
-    // erroring — the cached payload was valid for the OpenAI handler, and the
-    // translation gap is our bug, not the client's.
+    let request = match deserialize_request(&raw_body) {
+        Ok(r) => r,
+        Err(resp) => return resp,
+    };
+
     for ext in state.extensions.iter() {
         if let Some(cached) = ext.on_cache_lookup(&request).await
             && let Ok(resp) = from_chat_completion(cached)
@@ -288,16 +314,22 @@ where
     for deployment in &deployments {
         match try_chat_with_retries(deployment, &request).await {
             Ok(resp) => {
-                let (pt, ct) = resp
+                let (pt, ct, ch) = resp
                     .usage
                     .as_ref()
-                    .map(|u| (u.prompt_tokens, u.completion_tokens))
-                    .unwrap_or((0, 0));
+                    .map(|u| {
+                        (
+                            u.prompt_tokens,
+                            u.completion_tokens,
+                            u.prompt_cache_hit_tokens.unwrap_or(0),
+                        )
+                    })
+                    .unwrap_or((0, 0, 0));
                 if pt > 0 || ct > 0 {
                     record_tokens(&ctx, pt, ct);
                 }
                 record_duration(&ctx, "2xx");
-                emit_usage(&state, &ctx, ENDPOINT, pt, ct, 200, None);
+                emit_usage(&state, &ctx, ENDPOINT, RequestOutcome::ok(pt, ct, ch));
                 for ext in state.extensions.iter() {
                     ext.on_response(&ctx, &request, &resp).await;
                 }
@@ -347,6 +379,8 @@ async fn handle_raw_anthropic<S: Storage, P: Provider>(
         input_tokens: u32,
         #[serde(default)]
         output_tokens: u32,
+        #[serde(default)]
+        cache_read_input_tokens: Option<u32>,
     }
 
     let registry = state.registry();
@@ -373,16 +407,23 @@ async fn handle_raw_anthropic<S: Storage, P: Provider>(
         .await
         {
             Ok(resp_bytes) => {
-                let (pt, ct) = crabllm_core::json::from_slice::<AnthropicUsagePeek>(&resp_bytes)
-                    .ok()
-                    .and_then(|p| p.usage)
-                    .map(|u| (u.input_tokens, u.output_tokens))
-                    .unwrap_or((0, 0));
+                let (pt, ct, ch) =
+                    crabllm_core::json::from_slice::<AnthropicUsagePeek>(&resp_bytes)
+                        .ok()
+                        .and_then(|p| p.usage)
+                        .map(|u| {
+                            (
+                                u.input_tokens,
+                                u.output_tokens,
+                                u.cache_read_input_tokens.unwrap_or(0),
+                            )
+                        })
+                        .unwrap_or((0, 0, 0));
                 if pt > 0 || ct > 0 {
                     record_tokens(&ctx, pt, ct);
                 }
                 record_duration(&ctx, "2xx");
-                emit_usage(state, &ctx, ENDPOINT, pt, ct, 200, None);
+                emit_usage(state, &ctx, ENDPOINT, RequestOutcome::ok(pt, ct, ch));
                 return (
                     [(axum::http::header::CONTENT_TYPE, "application/json")],
                     resp_bytes,
@@ -405,4 +446,205 @@ async fn handle_raw_anthropic<S: Storage, P: Provider>(
     record_duration(&ctx, error_status(&e));
     emit_usage_error(state, &ctx, ENDPOINT, &e);
     error_response(e)
+}
+
+/// Streaming raw byte proxy for Anthropic-compatible providers.
+///
+/// Forwards upstream Anthropic SSE events directly to the client, parsing
+/// just enough to extract usage tokens for metrics.
+fn raw_anthropic_stream_response<S: Storage + 'static, P: Provider + 'static>(
+    byte_stream: crabllm_core::ByteStream,
+    state: &AppState<S, P>,
+    ctx: RequestContext,
+) -> Response {
+    let ctx = Arc::new(ctx);
+    let tokens_in = Arc::new(AtomicU32::new(0));
+    let tokens_out = Arc::new(AtomicU32::new(0));
+    let cache_hit = Arc::new(AtomicU32::new(0));
+    let errored = Arc::new(AtomicBool::new(false));
+    let first_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+
+    let ctx_c = ctx.clone();
+    let tokens_in_c = tokens_in.clone();
+    let tokens_out_c = tokens_out.clone();
+    let cache_hit_c = cache_hit.clone();
+    let errored_c = errored.clone();
+    let first_error_c = first_error.clone();
+
+    let events = anthropic_raw_sse(byte_stream);
+
+    let sse_stream = events.map(move |result| match result {
+        Ok((event_name, data)) => {
+            peek_anthropic_usage(
+                &event_name,
+                &data,
+                &tokens_in_c,
+                &tokens_out_c,
+                &cache_hit_c,
+            );
+            if tokens_in_c.load(Ordering::Relaxed) > 0 || tokens_out_c.load(Ordering::Relaxed) > 0 {
+                record_tokens(
+                    &ctx_c,
+                    tokens_in_c.load(Ordering::Relaxed),
+                    tokens_out_c.load(Ordering::Relaxed),
+                );
+            }
+            Ok::<_, std::convert::Infallible>(Event::default().event(event_name).data(data))
+        }
+        Err(e) => {
+            errored_c.store(true, Ordering::Relaxed);
+            {
+                let mut slot = first_error_c.lock().unwrap();
+                if slot.is_none() {
+                    *slot = Some(e.to_string());
+                }
+            }
+            let json = crabllm_core::json::to_string(&serde_json::json!({
+                "type": "error",
+                "error": {
+                    "type": "api_error",
+                    "message": e.to_string(),
+                },
+            }))
+            .unwrap_or_default();
+            Ok(Event::default().event("error").data(json))
+        }
+    });
+
+    let state = state.clone();
+    let finalized = futures::stream::unfold(
+        (
+            Box::pin(sse_stream),
+            Some((
+                state,
+                ctx,
+                tokens_in,
+                tokens_out,
+                cache_hit,
+                errored,
+                first_error,
+            )),
+        ),
+        |(mut inner, mut slot)| async move {
+            match inner.next().await {
+                Some(item) => Some((item, (inner, slot))),
+                None => {
+                    if let Some((state, ctx, ti, to, ch, er, fe)) = slot.take() {
+                        let errored = er.load(Ordering::Relaxed);
+                        record_duration(&ctx, if errored { "5xx" } else { "2xx" });
+                        let error = fe.lock().unwrap().take();
+                        let status = if errored { 0 } else { 200 };
+                        emit_usage(
+                            &state,
+                            &ctx,
+                            ENDPOINT,
+                            RequestOutcome {
+                                tokens_in: ti.load(Ordering::Relaxed),
+                                tokens_out: to.load(Ordering::Relaxed),
+                                cache_hit_tokens: ch.load(Ordering::Relaxed),
+                                status,
+                                error,
+                            },
+                        );
+                    }
+                    None
+                }
+            }
+        },
+    );
+
+    Sse::new(finalized)
+        .keep_alive(axum::response::sse::KeepAlive::new())
+        .into_response()
+}
+
+/// Parse a raw SSE byte stream into `(event_name, data)` pairs.
+fn anthropic_raw_sse(
+    byte_stream: crabllm_core::ByteStream,
+) -> impl futures::Stream<Item = Result<(String, String), crabllm_core::Error>> {
+    futures::stream::unfold(
+        (byte_stream, BytesMut::new(), None::<String>, None::<String>),
+        |(mut bytes, mut buf, mut event_name, mut data)| async move {
+            use futures::StreamExt;
+            loop {
+                if let Some(newline_pos) = buf.iter().position(|&b| b == b'\n') {
+                    let mut line_end = newline_pos;
+                    if line_end > 0 && buf[line_end - 1] == b'\r' {
+                        line_end -= 1;
+                    }
+                    let line = &buf[..line_end];
+
+                    if line.is_empty() {
+                        buf.advance(newline_pos + 1);
+                        if let (Some(name), Some(d)) = (event_name.take(), data.take()) {
+                            return Some((Ok((name, d)), (bytes, buf, None, None)));
+                        }
+                        continue;
+                    }
+
+                    if let Some(rest) = line.strip_prefix(b"event: ")
+                        && let Ok(s) = std::str::from_utf8(rest)
+                    {
+                        event_name = Some(s.trim().to_string());
+                    } else if let Some(rest) = line.strip_prefix(b"data: ")
+                        && let Ok(s) = std::str::from_utf8(rest)
+                    {
+                        data = Some(s.trim().to_string());
+                    }
+
+                    buf.advance(newline_pos + 1);
+                    continue;
+                }
+
+                match bytes.next().await {
+                    Some(Ok(chunk)) => buf.extend_from_slice(&chunk),
+                    Some(Err(e)) => {
+                        return Some((
+                            Err(crabllm_core::Error::Internal(format!("stream error: {e}"))),
+                            (bytes, buf, event_name, data),
+                        ));
+                    }
+                    None => return None,
+                }
+            }
+        },
+    )
+}
+
+/// Extract usage tokens from Anthropic SSE event data.
+fn peek_anthropic_usage(
+    event_name: &str,
+    data: &str,
+    tokens_in: &AtomicU32,
+    tokens_out: &AtomicU32,
+    cache_hit: &AtomicU32,
+) {
+    let val: serde_json::Value = match serde_json::from_str(data) {
+        Ok(v) => v,
+        Err(_) => return,
+    };
+
+    match event_name {
+        "message_start" => {
+            if let Some(usage) = val.pointer("/message/usage") {
+                if let Some(n) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
+                    tokens_in.store(n as u32, Ordering::Relaxed);
+                }
+                if let Some(n) = usage
+                    .get("cache_read_input_tokens")
+                    .and_then(|v| v.as_u64())
+                {
+                    cache_hit.store(n as u32, Ordering::Relaxed);
+                }
+            }
+        }
+        "message_delta" => {
+            if let Some(usage) = val.get("usage")
+                && let Some(n) = usage.get("output_tokens").and_then(|v| v.as_u64())
+            {
+                tokens_out.store(n as u32, Ordering::Relaxed);
+            }
+        }
+        _ => {}
+    }
 }

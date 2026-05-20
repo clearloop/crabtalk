@@ -39,7 +39,7 @@ impl Provider for FakeProvider {
                 index: 0,
                 message: Message {
                     role: Role::Assistant,
-                    content: vec![ContentBlock::Text { text: "hi".into() }],
+                    content: vec![ContentBlock::text("hi")],
                 },
                 finish_reason: Some(FinishReason::Stop),
                 logprobs: None,
@@ -61,6 +61,20 @@ impl Provider for FakeProvider {
         _request: &ChatCompletionRequest,
     ) -> Result<BoxStream<'static, Result<crabllm_core::ChatCompletionChunk, Error>>, Error> {
         Err(Error::not_implemented("stream"))
+    }
+
+    async fn anthropic_messages(
+        &self,
+        _request: &crabllm_core::AnthropicRequest,
+    ) -> Result<crabllm_core::AnthropicResponse, Error> {
+        Err(Error::not_implemented("anthropic_messages"))
+    }
+
+    async fn anthropic_messages_stream(
+        &self,
+        _request: &crabllm_core::AnthropicRequest,
+    ) -> Result<BoxStream<'static, Result<crabllm_core::ChatCompletionChunk, Error>>, Error> {
+        Err(Error::not_implemented("anthropic_messages_stream"))
     }
 }
 
@@ -156,6 +170,7 @@ async fn chat_completion_emits_one_usage_event() {
     assert_eq!(event.provider, "fake");
     assert_eq!(event.tokens_in, 11);
     assert_eq!(event.tokens_out, 22);
+    assert_eq!(event.cache_hit_tokens, 0);
     assert_eq!(event.status, 200);
     assert!(event.error.is_none());
 

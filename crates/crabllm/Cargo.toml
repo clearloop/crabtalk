@@ -19,7 +19,7 @@ rustls = ["crabllm-proxy/rustls"]
 sonic = ["crabllm-proxy/sonic"]
 storage-redis = ["crabllm-proxy/storage-redis"]
 storage-sqlite = ["crabllm-proxy/storage-sqlite"]
-provider-bedrock = ["crabllm-provider/provider-bedrock"]
+bedrock = ["crabllm-provider/bedrock"]
 openapi = ["crabllm-proxy/openapi", "utoipa", "utoipa-scalar"]
 
 [[bin]]

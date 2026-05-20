@@ -2,12 +2,54 @@ use crate::provider::schema;
 use crate::{ByteStream, HttpClient};
 use bytes::{Buf, BytesMut};
 use crabllm_core::{
-    ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice,
-    ContentBlock, Delta, Error, FinishReason, FunctionCallDelta, Message, Role, ToolCallDelta,
-    ToolResultContent, Usage,
+    AnthropicRequest, AnthropicResponse, BoxStream, ChatCompletionChunk, ChatCompletionRequest,
+    ChatCompletionResponse, Choice, ChunkChoice, ContentBlock, Delta, Error, FinishReason,
+    FunctionCallDelta, Message, Provider, Role, ToolCallDelta, ToolResultContent, Usage,
 };
-use futures::stream::{self, Stream};
+use futures::stream::{self, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone)]
+pub struct GoogleProvider {
+    pub(crate) client: HttpClient,
+    pub(crate) api_key: String,
+}
+
+impl Provider for GoogleProvider {
+    async fn chat_completion(
+        &self,
+        request: &ChatCompletionRequest,
+    ) -> Result<ChatCompletionResponse, Error> {
+        chat_completion(&self.client, &self.api_key, request).await
+    }
+
+    async fn chat_completion_stream(
+        &self,
+        request: &ChatCompletionRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        let s =
+            chat_completion_stream(&self.client, &self.api_key, request, &request.model).await?;
+        Ok(s.boxed())
+    }
+
+    async fn anthropic_messages(
+        &self,
+        request: &AnthropicRequest,
+    ) -> Result<AnthropicResponse, Error> {
+        let chat_req = ChatCompletionRequest::from(request.clone());
+        let resp = self.chat_completion(&chat_req).await?;
+        AnthropicResponse::try_from(resp)
+    }
+
+    async fn anthropic_messages_stream(
+        &self,
+        request: &AnthropicRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        let mut chat_req = ChatCompletionRequest::from(request.clone());
+        chat_req.stream = Some(true);
+        self.chat_completion_stream(&chat_req).await
+    }
+}
 
 const BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
 
@@ -207,7 +249,7 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
     for msg in &request.messages {
         if msg.role == Role::System {
             for block in &msg.content {
-                if let ContentBlock::Text { text } = block {
+                if let ContentBlock::Text { text, .. } = block {
                     system_parts.push(GeminiPart {
                         text: Some(text.clone()),
                         function_call: None,
@@ -224,7 +266,7 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
             let mut parts = Vec::new();
             for block in &msg.content {
                 match block {
-                    ContentBlock::Text { text } if !text.is_empty() => {
+                    ContentBlock::Text { text, .. } if !text.is_empty() => {
                         parts.push(GeminiPart {
                             text: Some(text.clone()),
                             function_call: None,
@@ -232,7 +274,9 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
                             thought_signature: None,
                         });
                     }
-                    ContentBlock::ToolUse { id, name, input } => {
+                    ContentBlock::ToolUse {
+                        id, name, input, ..
+                    } => {
                         let signature = extract_signature_from_id(id)
                             .map(|s| s.to_string())
                             .or_else(|| {
@@ -252,6 +296,7 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
                         tool_use_id,
                         name,
                         content,
+                        ..
                     } => {
                         let fn_name = name
                             .as_deref()
@@ -263,7 +308,7 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
                             ToolResultContent::Blocks(blocks) => blocks
                                 .iter()
                                 .filter_map(|b| match b {
-                                    ContentBlock::Text { text } => Some(text.as_str()),
+                                    ContentBlock::Text { text, .. } => Some(text.as_str()),
                                     _ => None,
                                 })
                                 .collect::<Vec<_>>()
@@ -390,7 +435,7 @@ fn extract_blocks(candidate: &GeminiCandidate) -> Vec<ContentBlock> {
             if let Some(t) = &part.text
                 && !t.is_empty()
             {
-                blocks.push(ContentBlock::Text { text: t.clone() });
+                blocks.push(ContentBlock::text(t.clone()));
             }
             if let Some(fc) = &part.function_call {
                 let base_id = format!("call_{i}");
@@ -399,6 +444,7 @@ fn extract_blocks(candidate: &GeminiCandidate) -> Vec<ContentBlock> {
                     id,
                     name: fc.name.clone(),
                     input: fc.args.clone(),
+                    cache_control: None,
                 });
             }
         }
@@ -431,10 +477,6 @@ fn translate_response(resp: GeminiResponse, model: &str) -> ChatCompletionRespon
         usage: resp.usage_metadata.map(Usage::from),
         system_fingerprint: None,
     }
-}
-
-pub fn not_implemented(name: &str) -> Error {
-    Error::Internal(format!("google {name} not supported"))
 }
 
 // ── Public API ──
@@ -553,8 +595,10 @@ fn gemini_sse_stream(
                     let mut tool_call_deltas: Vec<ToolCallDelta> = Vec::new();
                     for block in blocks {
                         match block {
-                            ContentBlock::Text { text: t } => text.push_str(&t),
-                            ContentBlock::ToolUse { id, name, input } => {
+                            ContentBlock::Text { text: t, .. } => text.push_str(&t),
+                            ContentBlock::ToolUse {
+                                id, name, input, ..
+                            } => {
                                 tool_call_deltas.push(ToolCallDelta {
                                     index: tool_call_deltas.len() as u32,
                                     id: Some(id),

@@ -43,4 +43,18 @@ impl Provider for MlxProvider {
     ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
         Err(Error::not_implemented(STUB_MSG))
     }
+
+    async fn anthropic_messages(
+        &self,
+        _request: &crabllm_core::AnthropicRequest,
+    ) -> Result<crabllm_core::AnthropicResponse, Error> {
+        Err(Error::not_implemented(STUB_MSG))
+    }
+
+    async fn anthropic_messages_stream(
+        &self,
+        _request: &crabllm_core::AnthropicRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        Err(Error::not_implemented(STUB_MSG))
+    }
 }

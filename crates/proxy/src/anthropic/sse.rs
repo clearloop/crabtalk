@@ -216,9 +216,7 @@ impl AdapterState {
         self.pending
             .push_back(AnthropicSseEvent::ContentBlockStart {
                 index,
-                content_block: AnthropicContentBlock::Text {
-                    text: String::new(),
-                },
+                content_block: AnthropicContentBlock::text(""),
             });
         self.current = Some(CurrentBlock::Text { index });
         index
@@ -257,6 +255,7 @@ impl AdapterState {
                     id,
                     name,
                     input: serde_json::json!({}),
+                    cache_control: None,
                 },
             });
         self.current = Some(CurrentBlock::ToolUse {

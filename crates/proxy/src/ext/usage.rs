@@ -35,6 +35,7 @@ impl UsageTracker {
         model: &str,
         prompt_tokens: u32,
         completion_tokens: u32,
+        cache_hit_tokens: u32,
     ) {
         let prompt_suffix = format!("{principal}:{model}:p");
         let completion_suffix = format!("{principal}:{model}:c");
@@ -53,6 +54,16 @@ impl UsageTracker {
                 completion_tokens as i64,
             )
             .await;
+        if cache_hit_tokens > 0 {
+            let ch_suffix = format!("{principal}:{model}:ch");
+            let _ = self
+                .storage
+                .increment(
+                    &storage_key(&PREFIX_USAGE, ch_suffix.as_bytes()),
+                    cache_hit_tokens as i64,
+                )
+                .await;
+        }
     }
 }
 
@@ -80,8 +91,14 @@ impl crabllm_core::Extension for UsageTracker {
 
         Box::pin(async move {
             if let Some(u) = usage {
-                self.record(&principal, &model, u.prompt_tokens, u.completion_tokens)
-                    .await;
+                self.record(
+                    &principal,
+                    &model,
+                    u.prompt_tokens,
+                    u.completion_tokens,
+                    u.prompt_cache_hit_tokens.unwrap_or(0),
+                )
+                .await;
             }
         })
     }
@@ -96,8 +113,14 @@ impl crabllm_core::Extension for UsageTracker {
 
         Box::pin(async move {
             if let Some(u) = usage {
-                self.record(&principal, &model, u.prompt_tokens, u.completion_tokens)
-                    .await;
+                self.record(
+                    &principal,
+                    &model,
+                    u.prompt_tokens,
+                    u.completion_tokens,
+                    u.prompt_cache_hit_tokens.unwrap_or(0),
+                )
+                .await;
             }
         })
     }
@@ -121,6 +144,7 @@ pub struct UsageEntry {
     model: String,
     prompt_tokens: i64,
     completion_tokens: i64,
+    cache_hit_tokens: i64,
 }
 
 /// Query usage data from storage, filtered by optional principal and model.
@@ -131,7 +155,7 @@ pub async fn query_usage(
 ) -> Json<Vec<UsageEntry>> {
     let pairs = storage.list(&PREFIX_USAGE).await.unwrap_or_default();
 
-    let mut entries: std::collections::HashMap<(String, String), (i64, i64)> =
+    let mut entries: std::collections::HashMap<(String, String), (i64, i64, i64)> =
         std::collections::HashMap::new();
 
     for (raw_key, raw_value) in &pairs {
@@ -140,7 +164,7 @@ pub async fn query_usage(
             Err(_) => continue,
         };
 
-        // suffix format: "{principal}:{model}:{p|c}"
+        // suffix format: "{principal}:{model}:{p|c|ch}"
         let Some((rest, kind)) = suffix.rsplit_once(':') else {
             continue;
         };
@@ -167,23 +191,27 @@ pub async fn query_usage(
 
         let entry = entries
             .entry((principal.to_string(), model.to_string()))
-            .or_insert((0, 0));
+            .or_insert((0, 0, 0));
 
         match kind {
             "p" => entry.0 = val,
             "c" => entry.1 = val,
+            "ch" => entry.2 = val,
             _ => {}
         }
     }
 
     let result: Vec<UsageEntry> = entries
         .into_iter()
-        .map(|((name, model), (prompt, completion))| UsageEntry {
-            name,
-            model,
-            prompt_tokens: prompt,
-            completion_tokens: completion,
-        })
+        .map(
+            |((name, model), (prompt, completion, cache_hit))| UsageEntry {
+                name,
+                model,
+                prompt_tokens: prompt,
+                completion_tokens: completion,
+                cache_hit_tokens: cache_hit,
+            },
+        )
         .collect();
 
     Json(result)

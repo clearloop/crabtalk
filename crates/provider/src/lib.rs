@@ -1,10 +1,9 @@
 use bytes::Bytes;
 use crabllm_core::{
-    AudioSpeechRequest, BoxStream, ChatCompletionChunk, ChatCompletionRequest,
-    ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse, Error, ImageRequest,
-    MultipartField, Provider, ProviderConfig, ProviderKind,
+    AnthropicRequest, AnthropicResponse, AudioSpeechRequest, BoxStream, ChatCompletionChunk,
+    ChatCompletionRequest, ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse, Error,
+    ImageRequest, MultipartField, Provider, ProviderConfig, ProviderKind,
 };
-use futures::stream::StreamExt;
 pub use registry::{Deployment, ProviderRegistry};
 
 mod client;
@@ -13,6 +12,66 @@ mod registry;
 
 pub use client::{ByteStream, HttpClient};
 pub use provider::schema;
+pub use provider::{
+    anthropic::AnthropicProvider, azure::AzureProvider, deepseek::DeepseekProvider,
+    google::GoogleProvider, openai::OpenaiProvider,
+};
+
+#[cfg(feature = "bedrock")]
+pub use provider::bedrock::BedrockProvider;
+
+#[cfg(not(feature = "bedrock"))]
+mod bedrock_stub {
+    #[derive(Debug, Clone)]
+    pub struct BedrockProvider;
+
+    impl crabllm_core::Provider for BedrockProvider {
+        async fn chat_completion(
+            &self,
+            _request: &crabllm_core::ChatCompletionRequest,
+        ) -> Result<crabllm_core::ChatCompletionResponse, crabllm_core::Error> {
+            Err(crabllm_core::Error::not_implemented("bedrock chat"))
+        }
+
+        async fn chat_completion_stream(
+            &self,
+            _request: &crabllm_core::ChatCompletionRequest,
+        ) -> Result<
+            crabllm_core::BoxStream<
+                'static,
+                Result<crabllm_core::ChatCompletionChunk, crabllm_core::Error>,
+            >,
+            crabllm_core::Error,
+        > {
+            Err(crabllm_core::Error::not_implemented("bedrock streaming"))
+        }
+
+        async fn anthropic_messages(
+            &self,
+            _request: &crabllm_core::AnthropicRequest,
+        ) -> Result<crabllm_core::AnthropicResponse, crabllm_core::Error> {
+            Err(crabllm_core::Error::not_implemented("bedrock anthropic"))
+        }
+
+        async fn anthropic_messages_stream(
+            &self,
+            _request: &crabllm_core::AnthropicRequest,
+        ) -> Result<
+            crabllm_core::BoxStream<
+                'static,
+                Result<crabllm_core::ChatCompletionChunk, crabllm_core::Error>,
+            >,
+            crabllm_core::Error,
+        > {
+            Err(crabllm_core::Error::not_implemented(
+                "bedrock anthropic streaming",
+            ))
+        }
+    }
+}
+
+#[cfg(not(feature = "bedrock"))]
+pub use bedrock_stub::BedrockProvider;
 
 /// Exposed so `crabllm-llamacpp` can reuse the OpenAI-compatible HTTP
 /// helpers against the child llama-server process. Append-only surface —
@@ -24,48 +83,18 @@ pub mod openai_client {
 
 /// A configured remote-API provider, ready to dispatch requests.
 ///
-/// Each variant carries a `HttpClient` so the provider trait
-/// implementation needs no shared client passed by the caller. Cloning a
-/// `RemoteProvider` is cheap — `HttpClient` is internally `Arc`-shared.
+/// Each variant wraps a provider struct that implements `Provider`
+/// directly. `RemoteProvider` is a thin delegating enum — the real
+/// implementation lives in the per-provider structs. Cloning is cheap
+/// because `HttpClient` is internally `Arc`-shared.
 #[derive(Debug, Clone)]
 pub enum RemoteProvider {
-    /// OpenAI-compatible providers (OpenAI, Ollama, vLLM, Groq, etc.).
-    /// Request body is forwarded as-is with URL + auth rewrite.
-    Openai {
-        client: HttpClient,
-        base_url: String,
-        api_key: String,
-    },
-    /// Anthropic Messages API. Requires request/response translation.
-    Anthropic {
-        client: HttpClient,
-        base_url: String,
-        api_key: String,
-    },
-    /// DeepSeek API — dual-compatible: OpenAI-format at `openai_base_url`,
-    /// Anthropic-format at `anthropic_base_url`. Both use Bearer auth.
-    Deepseek {
-        client: HttpClient,
-        openai_base_url: String,
-        anthropic_base_url: String,
-        api_key: String,
-    },
-    /// Google Gemini API. Requires request/response translation.
-    Google { client: HttpClient, api_key: String },
-    /// AWS Bedrock. Requires SigV4 signing + translation.
-    Bedrock {
-        client: HttpClient,
-        region: String,
-        access_key: String,
-        secret_key: String,
-    },
-    /// Azure OpenAI. Uses deployment-based URL and api-key header.
-    Azure {
-        client: HttpClient,
-        base_url: String,
-        api_key: String,
-        api_version: String,
-    },
+    Openai(OpenaiProvider),
+    Anthropic(AnthropicProvider),
+    Deepseek(DeepseekProvider),
+    Google(GoogleProvider),
+    Bedrock(BedrockProvider),
+    Azure(AzureProvider),
 }
 
 /// Build the shared [`HttpClient`] used by every `RemoteProvider`.
@@ -100,19 +129,10 @@ fn normalize_base_url(url: &str) -> String {
 }
 
 impl RemoteProvider {
-    /// Build a `RemoteProvider` from a `ProviderConfig`, reusing a shared
-    /// `HttpClient`. Cloning the client is cheap — internally it's
-    /// `Arc<ClientRef>` — so every provider returned by this constructor
-    /// dispatches through the same connection pool.
-    ///
-    /// Routes via [`ProviderConfig::effective_kind`] so a config with
-    /// `kind = "openai"` and a `base_url` containing "anthropic" auto-upgrades
-    /// to the Anthropic dispatch path. Base URLs are normalized so a pasted
-    /// full endpoint URL (e.g. `…/v1/chat/completions`) collapses to the bare
-    /// origin (`…/v1`).
     pub fn new(config: &ProviderConfig, client: HttpClient) -> Self {
+        let api_key = config.api_key.clone().unwrap_or_default();
         match config.effective_kind() {
-            ProviderKind::Openai => RemoteProvider::Openai {
+            ProviderKind::Openai => RemoteProvider::Openai(OpenaiProvider {
                 client,
                 base_url: normalize_base_url(
                     &config
@@ -120,34 +140,31 @@ impl RemoteProvider {
                         .clone()
                         .unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
                 ),
-                api_key: config.api_key.clone().unwrap_or_default(),
-            },
-            ProviderKind::Anthropic => RemoteProvider::Anthropic {
+                api_key,
+            }),
+            ProviderKind::Anthropic => RemoteProvider::Anthropic(AnthropicProvider {
                 client,
                 base_url: config
                     .base_url
                     .clone()
                     .unwrap_or_else(|| provider::anthropic::DEFAULT_BASE_URL.to_string()),
-                api_key: config.api_key.clone().unwrap_or_default(),
-            },
+                api_key,
+            }),
             ProviderKind::Deepseek => {
                 let base = config
                     .base_url
                     .clone()
                     .unwrap_or_else(|| provider::deepseek::DEFAULT_BASE_URL.to_string());
                 let base = base.trim_end_matches('/');
-                RemoteProvider::Deepseek {
+                RemoteProvider::Deepseek(DeepseekProvider {
                     client,
                     openai_base_url: normalize_base_url(&format!("{base}/v1")),
                     anthropic_base_url: format!("{base}/anthropic"),
-                    api_key: config.api_key.clone().unwrap_or_default(),
-                }
+                    api_key,
+                })
             }
-            ProviderKind::Google => RemoteProvider::Google {
-                client,
-                api_key: config.api_key.clone().unwrap_or_default(),
-            },
-            ProviderKind::Ollama => RemoteProvider::Openai {
+            ProviderKind::Google => RemoteProvider::Google(GoogleProvider { client, api_key }),
+            ProviderKind::Ollama => RemoteProvider::Openai(OpenaiProvider {
                 client,
                 base_url: normalize_base_url(
                     &config
@@ -155,37 +172,43 @@ impl RemoteProvider {
                         .clone()
                         .unwrap_or_else(|| "http://localhost:11434/v1".to_string()),
                 ),
-                api_key: config.api_key.clone().unwrap_or_default(),
-            },
-            ProviderKind::Azure => RemoteProvider::Azure {
+                api_key,
+            }),
+            ProviderKind::Azure => RemoteProvider::Azure(AzureProvider {
                 client,
                 base_url: normalize_base_url(&config.base_url.clone().unwrap_or_default()),
-                api_key: config.api_key.clone().unwrap_or_default(),
+                api_key,
                 api_version: config
                     .api_version
                     .clone()
                     .unwrap_or_else(|| "2024-02-15-preview".to_string()),
-            },
-            ProviderKind::Bedrock => RemoteProvider::Bedrock {
-                client,
-                region: config.region.clone().unwrap_or_default(),
-                access_key: config.access_key.clone().unwrap_or_default(),
-                secret_key: config.secret_key.clone().unwrap_or_default(),
-            },
-            // Self-defined kind — must be OpenAI-compatible; base_url is
-            // required (enforced by ProviderConfig::validate).
-            ProviderKind::Custom(_) => RemoteProvider::Openai {
+            }),
+            ProviderKind::Bedrock => {
+                #[cfg(feature = "bedrock")]
+                {
+                    RemoteProvider::Bedrock(BedrockProvider {
+                        client,
+                        region: config.region.clone().unwrap_or_default(),
+                        access_key: config.access_key.clone().unwrap_or_default(),
+                        secret_key: config.secret_key.clone().unwrap_or_default(),
+                    })
+                }
+                #[cfg(not(feature = "bedrock"))]
+                {
+                    let _ = client;
+                    RemoteProvider::Bedrock(BedrockProvider)
+                }
+            }
+            ProviderKind::Custom(_) => RemoteProvider::Openai(OpenaiProvider {
                 client,
                 base_url: normalize_base_url(&config.base_url.clone().unwrap_or_default()),
-                api_key: config.api_key.clone().unwrap_or_default(),
-            },
+                api_key,
+            }),
         }
     }
 }
 
-/// Build raw multipart body bytes and boundary from the provider-trait-
-/// friendly `MultipartField` representation. Returns `(body, boundary)`.
-fn rebuild_multipart(fields: &[MultipartField]) -> (Bytes, String) {
+pub(crate) fn rebuild_multipart(fields: &[MultipartField]) -> (Bytes, String) {
     let boundary = format!("crabllm-{:016x}", rand::random::<u64>());
     let mut buf = Vec::new();
     for field in fields {
@@ -222,46 +245,12 @@ impl Provider for RemoteProvider {
         request: &ChatCompletionRequest,
     ) -> Result<ChatCompletionResponse, Error> {
         match self {
-            RemoteProvider::Openai {
-                client,
-                base_url,
-                api_key,
-            } => provider::openai::chat_completion(client, base_url, api_key, request).await,
-            RemoteProvider::Anthropic {
-                client,
-                base_url,
-                api_key,
-            } => provider::anthropic::chat_completion(client, base_url, api_key, request).await,
-            RemoteProvider::Deepseek {
-                client,
-                openai_base_url,
-                api_key,
-                ..
-            } => provider::openai::chat_completion(client, openai_base_url, api_key, request).await,
-            RemoteProvider::Google { client, api_key } => {
-                provider::google::chat_completion(client, api_key, request).await
-            }
-            #[cfg(feature = "provider-bedrock")]
-            RemoteProvider::Bedrock {
-                client,
-                region,
-                access_key,
-                secret_key,
-            } => {
-                provider::bedrock::chat_completion(client, region, access_key, secret_key, request)
-                    .await
-            }
-            #[cfg(not(feature = "provider-bedrock"))]
-            RemoteProvider::Bedrock { .. } => Err(provider::bedrock::not_implemented("chat")),
-            RemoteProvider::Azure {
-                client,
-                base_url,
-                api_key,
-                api_version,
-            } => {
-                provider::azure::chat_completion(client, base_url, api_key, api_version, request)
-                    .await
-            }
+            Self::Openai(p) => p.chat_completion(request).await,
+            Self::Anthropic(p) => p.chat_completion(request).await,
+            Self::Deepseek(p) => p.chat_completion(request).await,
+            Self::Google(p) => p.chat_completion(request).await,
+            Self::Bedrock(p) => p.chat_completion(request).await,
+            Self::Azure(p) => p.chat_completion(request).await,
         }
     }
 
@@ -270,178 +259,73 @@ impl Provider for RemoteProvider {
         request: &ChatCompletionRequest,
     ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
         match self {
-            RemoteProvider::Openai {
-                client,
-                base_url,
-                api_key,
-            } => {
-                let s =
-                    provider::openai::chat_completion_stream(client, base_url, api_key, request)
-                        .await?;
-                Ok(s.boxed())
-            }
-            RemoteProvider::Anthropic {
-                client,
-                base_url,
-                api_key,
-            } => {
-                let s = provider::anthropic::chat_completion_stream(
-                    client,
-                    base_url,
-                    api_key,
-                    request,
-                    &request.model,
-                )
-                .await?;
-                Ok(s.boxed())
-            }
-            RemoteProvider::Deepseek {
-                client,
-                openai_base_url,
-                api_key,
-                ..
-            } => {
-                let s = provider::openai::chat_completion_stream(
-                    client,
-                    openai_base_url,
-                    api_key,
-                    request,
-                )
-                .await?;
-                Ok(s.boxed())
-            }
-            RemoteProvider::Google { client, api_key } => {
-                let s = provider::google::chat_completion_stream(
-                    client,
-                    api_key,
-                    request,
-                    &request.model,
-                )
-                .await?;
-                Ok(s.boxed())
-            }
-            #[cfg(feature = "provider-bedrock")]
-            RemoteProvider::Bedrock {
-                client,
-                region,
-                access_key,
-                secret_key,
-            } => {
-                let s = provider::bedrock::chat_completion_stream(
-                    client,
-                    region,
-                    access_key,
-                    secret_key,
-                    request,
-                    &request.model,
-                )
-                .await?;
-                Ok(s.boxed())
-            }
-            #[cfg(not(feature = "provider-bedrock"))]
-            RemoteProvider::Bedrock { .. } => Err(provider::bedrock::not_implemented("streaming")),
-            RemoteProvider::Azure {
-                client,
-                base_url,
-                api_key,
-                api_version,
-            } => {
-                let s = provider::azure::chat_completion_stream(
-                    client,
-                    base_url,
-                    api_key,
-                    api_version,
-                    request,
-                )
-                .await?;
-                Ok(s.boxed())
-            }
+            Self::Openai(p) => p.chat_completion_stream(request).await,
+            Self::Anthropic(p) => p.chat_completion_stream(request).await,
+            Self::Deepseek(p) => p.chat_completion_stream(request).await,
+            Self::Google(p) => p.chat_completion_stream(request).await,
+            Self::Bedrock(p) => p.chat_completion_stream(request).await,
+            Self::Azure(p) => p.chat_completion_stream(request).await,
+        }
+    }
+
+    async fn anthropic_messages(
+        &self,
+        request: &AnthropicRequest,
+    ) -> Result<AnthropicResponse, Error> {
+        match self {
+            Self::Openai(p) => p.anthropic_messages(request).await,
+            Self::Anthropic(p) => p.anthropic_messages(request).await,
+            Self::Deepseek(p) => p.anthropic_messages(request).await,
+            Self::Google(p) => p.anthropic_messages(request).await,
+            Self::Bedrock(p) => p.anthropic_messages(request).await,
+            Self::Azure(p) => p.anthropic_messages(request).await,
+        }
+    }
+
+    async fn anthropic_messages_stream(
+        &self,
+        request: &AnthropicRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        match self {
+            Self::Openai(p) => p.anthropic_messages_stream(request).await,
+            Self::Anthropic(p) => p.anthropic_messages_stream(request).await,
+            Self::Deepseek(p) => p.anthropic_messages_stream(request).await,
+            Self::Google(p) => p.anthropic_messages_stream(request).await,
+            Self::Bedrock(p) => p.anthropic_messages_stream(request).await,
+            Self::Azure(p) => p.anthropic_messages_stream(request).await,
         }
     }
 
     async fn embedding(&self, request: &EmbeddingRequest) -> Result<EmbeddingResponse, Error> {
         match self {
-            RemoteProvider::Openai {
-                client,
-                base_url,
-                api_key,
-            } => provider::openai::embedding(client, base_url, api_key, request).await,
-            RemoteProvider::Anthropic { .. } => {
-                Err(provider::anthropic::not_implemented("embedding"))
-            }
-            RemoteProvider::Deepseek {
-                client,
-                openai_base_url,
-                api_key,
-                ..
-            } => provider::openai::embedding(client, openai_base_url, api_key, request).await,
-            RemoteProvider::Google { .. } => Err(provider::google::not_implemented("embedding")),
-            RemoteProvider::Bedrock { .. } => Err(provider::bedrock::not_implemented("embedding")),
-            RemoteProvider::Azure {
-                client,
-                base_url,
-                api_key,
-                api_version,
-            } => provider::azure::embedding(client, base_url, api_key, api_version, request).await,
+            Self::Openai(p) => p.embedding(request).await,
+            Self::Anthropic(p) => p.embedding(request).await,
+            Self::Deepseek(p) => p.embedding(request).await,
+            Self::Google(p) => p.embedding(request).await,
+            Self::Bedrock(p) => p.embedding(request).await,
+            Self::Azure(p) => p.embedding(request).await,
         }
     }
 
     async fn image_generation(&self, request: &ImageRequest) -> Result<(Bytes, String), Error> {
         match self {
-            RemoteProvider::Openai {
-                client,
-                base_url,
-                api_key,
-            } => provider::openai::image_generation(client, base_url, api_key, request).await,
-            RemoteProvider::Anthropic { .. } => {
-                Err(provider::anthropic::not_implemented("image_generation"))
-            }
-            RemoteProvider::Deepseek { .. } => {
-                Err(provider::deepseek::not_implemented("image_generation"))
-            }
-            RemoteProvider::Google { .. } => {
-                Err(provider::google::not_implemented("image_generation"))
-            }
-            RemoteProvider::Bedrock { .. } => {
-                Err(provider::bedrock::not_implemented("image_generation"))
-            }
-            RemoteProvider::Azure {
-                client,
-                base_url,
-                api_key,
-                api_version,
-            } => {
-                provider::azure::image_generation(client, base_url, api_key, api_version, request)
-                    .await
-            }
+            Self::Openai(p) => p.image_generation(request).await,
+            Self::Anthropic(p) => p.image_generation(request).await,
+            Self::Deepseek(p) => p.image_generation(request).await,
+            Self::Google(p) => p.image_generation(request).await,
+            Self::Bedrock(p) => p.image_generation(request).await,
+            Self::Azure(p) => p.image_generation(request).await,
         }
     }
 
     async fn audio_speech(&self, request: &AudioSpeechRequest) -> Result<(Bytes, String), Error> {
         match self {
-            RemoteProvider::Openai {
-                client,
-                base_url,
-                api_key,
-            } => provider::openai::audio_speech(client, base_url, api_key, request).await,
-            RemoteProvider::Anthropic { .. } => {
-                Err(provider::anthropic::not_implemented("audio_speech"))
-            }
-            RemoteProvider::Deepseek { .. } => {
-                Err(provider::deepseek::not_implemented("audio_speech"))
-            }
-            RemoteProvider::Google { .. } => Err(provider::google::not_implemented("audio_speech")),
-            RemoteProvider::Bedrock { .. } => {
-                Err(provider::bedrock::not_implemented("audio_speech"))
-            }
-            RemoteProvider::Azure {
-                client,
-                base_url,
-                api_key,
-                api_version,
-            } => {
-                provider::azure::audio_speech(client, base_url, api_key, api_version, request).await
-            }
+            Self::Openai(p) => p.audio_speech(request).await,
+            Self::Anthropic(p) => p.audio_speech(request).await,
+            Self::Deepseek(p) => p.audio_speech(request).await,
+            Self::Google(p) => p.audio_speech(request).await,
+            Self::Bedrock(p) => p.audio_speech(request).await,
+            Self::Azure(p) => p.audio_speech(request).await,
         }
     }
 
@@ -451,133 +335,67 @@ impl Provider for RemoteProvider {
         fields: &[MultipartField],
     ) -> Result<(Bytes, String), Error> {
         match self {
-            RemoteProvider::Openai {
-                client,
-                base_url,
-                api_key,
-            } => {
-                let (body, boundary) = rebuild_multipart(fields);
-                provider::openai::audio_transcription(client, base_url, api_key, body, &boundary)
-                    .await
-            }
-            RemoteProvider::Anthropic { .. } => {
-                Err(provider::anthropic::not_implemented("audio_transcription"))
-            }
-            RemoteProvider::Deepseek { .. } => {
-                Err(provider::deepseek::not_implemented("audio_transcription"))
-            }
-            RemoteProvider::Google { .. } => {
-                Err(provider::google::not_implemented("audio_transcription"))
-            }
-            RemoteProvider::Bedrock { .. } => {
-                Err(provider::bedrock::not_implemented("audio_transcription"))
-            }
-            RemoteProvider::Azure {
-                client,
-                base_url,
-                api_key,
-                api_version,
-            } => {
-                let (body, boundary) = rebuild_multipart(fields);
-                provider::azure::audio_transcription(
-                    client,
-                    base_url,
-                    api_key,
-                    api_version,
-                    model,
-                    body,
-                    &boundary,
-                )
-                .await
-            }
+            Self::Openai(p) => p.audio_transcription(model, fields).await,
+            Self::Anthropic(p) => p.audio_transcription(model, fields).await,
+            Self::Deepseek(p) => p.audio_transcription(model, fields).await,
+            Self::Google(p) => p.audio_transcription(model, fields).await,
+            Self::Bedrock(p) => p.audio_transcription(model, fields).await,
+            Self::Azure(p) => p.audio_transcription(model, fields).await,
         }
     }
 
     fn is_openai_compat(&self) -> bool {
-        matches!(
-            self,
-            RemoteProvider::Openai { .. }
-                | RemoteProvider::Azure { .. }
-                | RemoteProvider::Deepseek { .. }
-        )
-    }
-
-    async fn chat_completion_raw(&self, model: &str, raw_body: Bytes) -> Result<Bytes, Error> {
         match self {
-            RemoteProvider::Openai {
-                client,
-                base_url,
-                api_key,
-            } => provider::openai::chat_completion_raw(client, base_url, api_key, raw_body).await,
-            RemoteProvider::Azure {
-                client,
-                base_url,
-                api_key,
-                api_version,
-            } => {
-                provider::azure::chat_completion_raw(
-                    client,
-                    base_url,
-                    api_key,
-                    api_version,
-                    model,
-                    raw_body,
-                )
-                .await
-            }
-            RemoteProvider::Deepseek {
-                client,
-                openai_base_url,
-                api_key,
-                ..
-            } => {
-                provider::openai::chat_completion_raw(client, openai_base_url, api_key, raw_body)
-                    .await
-            }
-            _ => {
-                let request: ChatCompletionRequest = crabllm_core::json::from_slice(&raw_body)
-                    .map_err(|e| Error::Internal(e.to_string()))?;
-                let resp = self.chat_completion(&request).await?;
-                Ok(Bytes::from(
-                    crabllm_core::json::to_vec(&resp)
-                        .map_err(|e| Error::Internal(e.to_string()))?,
-                ))
-            }
+            Self::Openai(p) => p.is_openai_compat(),
+            Self::Anthropic(p) => p.is_openai_compat(),
+            Self::Deepseek(p) => p.is_openai_compat(),
+            Self::Google(p) => p.is_openai_compat(),
+            Self::Bedrock(p) => p.is_openai_compat(),
+            Self::Azure(p) => p.is_openai_compat(),
         }
     }
 
     fn is_anthropic_compat(&self) -> bool {
-        matches!(
-            self,
-            RemoteProvider::Anthropic { .. } | RemoteProvider::Deepseek { .. }
-        )
+        match self {
+            Self::Openai(p) => p.is_anthropic_compat(),
+            Self::Anthropic(p) => p.is_anthropic_compat(),
+            Self::Deepseek(p) => p.is_anthropic_compat(),
+            Self::Google(p) => p.is_anthropic_compat(),
+            Self::Bedrock(p) => p.is_anthropic_compat(),
+            Self::Azure(p) => p.is_anthropic_compat(),
+        }
+    }
+
+    async fn chat_completion_raw(&self, model: &str, raw_body: Bytes) -> Result<Bytes, Error> {
+        match self {
+            Self::Openai(p) => p.chat_completion_raw(model, raw_body).await,
+            Self::Anthropic(p) => p.chat_completion_raw(model, raw_body).await,
+            Self::Deepseek(p) => p.chat_completion_raw(model, raw_body).await,
+            Self::Google(p) => p.chat_completion_raw(model, raw_body).await,
+            Self::Bedrock(p) => p.chat_completion_raw(model, raw_body).await,
+            Self::Azure(p) => p.chat_completion_raw(model, raw_body).await,
+        }
     }
 
     async fn anthropic_messages_raw(&self, raw_body: Bytes) -> Result<Bytes, Error> {
         match self {
-            RemoteProvider::Anthropic {
-                client,
-                base_url,
-                api_key,
-            } => {
-                provider::anthropic::anthropic_messages_raw(client, base_url, api_key, raw_body)
-                    .await
-            }
-            RemoteProvider::Deepseek {
-                client,
-                anthropic_base_url,
-                api_key,
-                ..
-            } => {
-                provider::deepseek::anthropic_messages_raw(
-                    client,
-                    anthropic_base_url,
-                    api_key,
-                    raw_body,
-                )
-                .await
-            }
-            _ => Err(Error::not_implemented("anthropic_messages_raw")),
+            Self::Openai(p) => p.anthropic_messages_raw(raw_body).await,
+            Self::Anthropic(p) => p.anthropic_messages_raw(raw_body).await,
+            Self::Deepseek(p) => p.anthropic_messages_raw(raw_body).await,
+            Self::Google(p) => p.anthropic_messages_raw(raw_body).await,
+            Self::Bedrock(p) => p.anthropic_messages_raw(raw_body).await,
+            Self::Azure(p) => p.anthropic_messages_raw(raw_body).await,
+        }
+    }
+
+    async fn anthropic_messages_stream_raw(&self, raw_body: Bytes) -> Result<ByteStream, Error> {
+        match self {
+            Self::Openai(p) => p.anthropic_messages_stream_raw(raw_body).await,
+            Self::Anthropic(p) => p.anthropic_messages_stream_raw(raw_body).await,
+            Self::Deepseek(p) => p.anthropic_messages_stream_raw(raw_body).await,
+            Self::Google(p) => p.anthropic_messages_stream_raw(raw_body).await,
+            Self::Bedrock(p) => p.anthropic_messages_stream_raw(raw_body).await,
+            Self::Azure(p) => p.anthropic_messages_stream_raw(raw_body).await,
         }
     }
 }

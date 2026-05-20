@@ -168,7 +168,7 @@ impl Provider for MlxProvider {
 
         let mut blocks = Vec::new();
         if !text.is_empty() {
-            blocks.push(ContentBlock::Text { text });
+            blocks.push(ContentBlock::text(text));
         }
         for tc in tool_calls {
             let input = crabllm_core::json::from_str(&tc.function.arguments)
@@ -177,6 +177,7 @@ impl Provider for MlxProvider {
                 id: tc.id,
                 name: tc.function.name,
                 input,
+                cache_control: None,
             });
         }
 
@@ -305,6 +306,24 @@ impl Provider for MlxProvider {
 
         drop(tx);
         Ok(rx.boxed())
+    }
+
+    async fn anthropic_messages(
+        &self,
+        request: &crabllm_core::AnthropicRequest,
+    ) -> Result<crabllm_core::AnthropicResponse, Error> {
+        let chat_req = ChatCompletionRequest::from(request.clone());
+        let resp = self.chat_completion(&chat_req).await?;
+        crabllm_core::AnthropicResponse::try_from(resp)
+    }
+
+    async fn anthropic_messages_stream(
+        &self,
+        request: &crabllm_core::AnthropicRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        let mut chat_req = ChatCompletionRequest::from(request.clone());
+        chat_req.stream = Some(true);
+        self.chat_completion_stream(&chat_req).await
     }
 }
 

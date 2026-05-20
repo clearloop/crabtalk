@@ -11,8 +11,6 @@ compile_error!("crabllm-provider: features `native-tls` and `rustls` are mutuall
 compile_error!("crabllm-provider: enable exactly one of `native-tls` or `rustls`");
 
 use bytes::Bytes;
-use futures::stream::Stream;
-use std::pin::Pin;
 
 /// Raw HTTP response — status + body bytes + optional content-type.
 pub struct RawResponse {
@@ -21,8 +19,7 @@ pub struct RawResponse {
     pub content_type: Option<String>,
 }
 
-/// A boxed byte stream suitable for SSE parsing.
-pub type ByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, std::io::Error>> + Send>>;
+pub use crabllm_core::ByteStream;
 
 #[cfg(feature = "hyper")]
 mod hyper;

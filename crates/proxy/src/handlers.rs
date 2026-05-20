@@ -62,14 +62,31 @@ pub(crate) fn record_tokens(ctx: &RequestContext, prompt: u32, completion: u32) 
     }
 }
 
+pub(crate) struct RequestOutcome {
+    pub tokens_in: u32,
+    pub tokens_out: u32,
+    pub cache_hit_tokens: u32,
+    pub status: u16,
+    pub error: Option<String>,
+}
+
+impl RequestOutcome {
+    pub fn ok(tokens_in: u32, tokens_out: u32, cache_hit_tokens: u32) -> Self {
+        Self {
+            tokens_in,
+            tokens_out,
+            cache_hit_tokens,
+            status: 200,
+            error: None,
+        }
+    }
+}
+
 pub(crate) fn emit_usage<S: Storage, P: Provider>(
     state: &AppState<S, P>,
     ctx: &RequestContext,
     endpoint: &'static str,
-    tokens_in: u32,
-    tokens_out: u32,
-    status: u16,
-    error: Option<String>,
+    outcome: RequestOutcome,
 ) {
     let Some(tx) = state.usage_events.as_ref() else {
         return;
@@ -81,11 +98,12 @@ pub(crate) fn emit_usage<S: Storage, P: Provider>(
         model: ctx.model.clone(),
         provider: ctx.provider.clone(),
         endpoint,
-        tokens_in,
-        tokens_out,
+        tokens_in: outcome.tokens_in,
+        tokens_out: outcome.tokens_out,
+        cache_hit_tokens: outcome.cache_hit_tokens,
         duration_ms: ctx.started_at.elapsed().as_millis() as u64,
-        status,
-        error,
+        status: outcome.status,
+        error: outcome.error,
     });
 }
 
@@ -122,10 +140,13 @@ pub(crate) fn emit_usage_error<S: Storage, P: Provider>(
         state,
         ctx,
         endpoint,
-        0,
-        0,
-        http_status_from_error(e),
-        Some(e.to_string()),
+        RequestOutcome {
+            tokens_in: 0,
+            tokens_out: 0,
+            cache_hit_tokens: 0,
+            status: http_status_from_error(e),
+            error: Some(e.to_string()),
+        },
     );
 }
 
@@ -254,12 +275,14 @@ where
                     // mutability across closure clones.
                     let tokens_in = Arc::new(AtomicU32::new(0));
                     let tokens_out = Arc::new(AtomicU32::new(0));
+                    let cache_hit = Arc::new(AtomicU32::new(0));
                     let first_error: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
                     let ctx_done = ctx.clone();
                     let errored_done = errored.clone();
                     let tokens_in_done = tokens_in.clone();
                     let tokens_out_done = tokens_out.clone();
+                    let cache_hit_done = cache_hit.clone();
                     let first_error_done = first_error.clone();
                     let state_done = state.clone();
 
@@ -269,6 +292,7 @@ where
                         let errored = errored.clone();
                         let tokens_in = tokens_in.clone();
                         let tokens_out = tokens_out.clone();
+                        let cache_hit = cache_hit.clone();
                         let first_error = first_error.clone();
                         async move {
                             match &result {
@@ -284,6 +308,10 @@ where
                                         tokens_in.store(usage.prompt_tokens, Ordering::Relaxed);
                                         tokens_out
                                             .store(usage.completion_tokens, Ordering::Relaxed);
+                                        cache_hit.store(
+                                            usage.prompt_cache_hit_tokens.unwrap_or(0),
+                                            Ordering::Relaxed,
+                                        );
                                     }
                                     for ext in extensions.iter() {
                                         ext.on_chunk(&ctx, chunk).await;
@@ -340,10 +368,13 @@ where
                             &state_done,
                             &ctx_done,
                             "chat.completions",
-                            tokens_in_done.load(Ordering::Relaxed),
-                            tokens_out_done.load(Ordering::Relaxed),
-                            status,
-                            error,
+                            RequestOutcome {
+                                tokens_in: tokens_in_done.load(Ordering::Relaxed),
+                                tokens_out: tokens_out_done.load(Ordering::Relaxed),
+                                cache_hit_tokens: cache_hit_done.load(Ordering::Relaxed),
+                                status,
+                                error,
+                            },
                         );
                         Ok::<_, std::convert::Infallible>(Event::default().data("[DONE]"))
                     });
@@ -379,16 +410,27 @@ where
         for deployment in &deployments {
             match try_chat_with_retries(deployment, &request).await {
                 Ok(resp) => {
-                    let (pt, ct) = resp
+                    let (pt, ct, ch) = resp
                         .usage
                         .as_ref()
-                        .map(|u| (u.prompt_tokens, u.completion_tokens))
-                        .unwrap_or((0, 0));
+                        .map(|u| {
+                            (
+                                u.prompt_tokens,
+                                u.completion_tokens,
+                                u.prompt_cache_hit_tokens.unwrap_or(0),
+                            )
+                        })
+                        .unwrap_or((0, 0, 0));
                     if pt > 0 || ct > 0 {
                         record_tokens(&ctx, pt, ct);
                     }
                     record_duration(&ctx, "2xx");
-                    emit_usage(&state, &ctx, "chat.completions", pt, ct, 200, None);
+                    emit_usage(
+                        &state,
+                        &ctx,
+                        "chat.completions",
+                        RequestOutcome::ok(pt, ct, ch),
+                    );
                     for ext in state.extensions.iter() {
                         ext.on_response(&ctx, &request, &resp).await;
                     }
@@ -445,16 +487,27 @@ async fn handle_raw_proxy<S: Storage, P: Provider>(
         .await
         {
             Ok(resp_bytes) => {
-                let (pt, ct) = crabllm_core::json::from_slice::<UsagePeek>(&resp_bytes)
+                let (pt, ct, ch) = crabllm_core::json::from_slice::<UsagePeek>(&resp_bytes)
                     .ok()
                     .and_then(|p| p.usage)
-                    .map(|u| (u.prompt_tokens, u.completion_tokens))
-                    .unwrap_or((0, 0));
+                    .map(|u| {
+                        (
+                            u.prompt_tokens,
+                            u.completion_tokens,
+                            u.prompt_cache_hit_tokens.unwrap_or(0),
+                        )
+                    })
+                    .unwrap_or((0, 0, 0));
                 if pt > 0 || ct > 0 {
                     record_tokens(&ctx, pt, ct);
                 }
                 record_duration(&ctx, "2xx");
-                emit_usage(state, &ctx, "chat.completions", pt, ct, 200, None);
+                emit_usage(
+                    state,
+                    &ctx,
+                    "chat.completions",
+                    RequestOutcome::ok(pt, ct, ch),
+                );
                 return (
                     [(axum::http::header::CONTENT_TYPE, "application/json")],
                     resp_bytes,
@@ -539,10 +592,7 @@ where
                     &state,
                     &ctx,
                     "embeddings",
-                    resp.usage.prompt_tokens,
-                    0,
-                    200,
-                    None,
+                    RequestOutcome::ok(resp.usage.prompt_tokens, 0, 0),
                 );
                 return Json(resp).into_response();
             }
@@ -693,7 +743,12 @@ where
         {
             Ok((bytes, content_type)) => {
                 record_duration(&ctx, "2xx");
-                emit_usage(&state, &ctx, "images.generations", 0, 0, 200, None);
+                emit_usage(
+                    &state,
+                    &ctx,
+                    "images.generations",
+                    RequestOutcome::ok(0, 0, 0),
+                );
                 return ([(axum::http::header::CONTENT_TYPE, content_type)], bytes).into_response();
             }
             Err(e) => last_err = Some(e),
@@ -771,7 +826,7 @@ where
         {
             Ok((bytes, content_type)) => {
                 record_duration(&ctx, "2xx");
-                emit_usage(&state, &ctx, "audio.speech", 0, 0, 200, None);
+                emit_usage(&state, &ctx, "audio.speech", RequestOutcome::ok(0, 0, 0));
                 return ([(axum::http::header::CONTENT_TYPE, content_type)], bytes).into_response();
             }
             Err(e) => last_err = Some(e),
@@ -899,7 +954,12 @@ where
         {
             Ok((bytes, content_type)) => {
                 record_duration(&ctx, "2xx");
-                emit_usage(&state, &ctx, "audio.transcriptions", 0, 0, 200, None);
+                emit_usage(
+                    &state,
+                    &ctx,
+                    "audio.transcriptions",
+                    RequestOutcome::ok(0, 0, 0),
+                );
                 return ([(axum::http::header::CONTENT_TYPE, content_type)], bytes).into_response();
             }
             Err(e) => last_err = Some(e),
@@ -1010,6 +1070,54 @@ pub(crate) async fn try_stream_with_retries<P: Provider>(
         match with_timeout(
             deployment.timeout,
             deployment.provider.chat_completion_stream(request),
+        )
+        .await
+        {
+            Ok(stream) => return Ok(stream),
+            Err(e) => {
+                if !e.is_transient() {
+                    return Err(e);
+                }
+                last_err = e;
+            }
+        }
+    }
+
+    Err(last_err)
+}
+
+/// Retry a raw Anthropic streaming request on a single deployment.
+pub(crate) async fn try_anthropic_stream_with_retries<P: Provider>(
+    deployment: &Deployment<P>,
+    raw_body: bytes::Bytes,
+) -> Result<crabllm_core::ByteStream, crabllm_core::Error> {
+    let mut last_err;
+    match with_timeout(
+        deployment.timeout,
+        deployment
+            .provider
+            .anthropic_messages_stream_raw(raw_body.clone()),
+    )
+    .await
+    {
+        Ok(stream) => return Ok(stream),
+        Err(e) => {
+            if !e.is_transient() || deployment.max_retries == 0 {
+                return Err(e);
+            }
+            last_err = e;
+        }
+    }
+
+    let mut backoff = Duration::from_millis(100);
+    for _ in 0..deployment.max_retries {
+        tokio::time::sleep(jittered(backoff)).await;
+        backoff *= 2;
+        match with_timeout(
+            deployment.timeout,
+            deployment
+                .provider
+                .anthropic_messages_stream_raw(raw_body.clone()),
         )
         .await
         {

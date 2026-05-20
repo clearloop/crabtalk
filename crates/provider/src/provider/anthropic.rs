@@ -3,13 +3,117 @@ use crate::{ByteStream, HttpClient};
 use bytes::{Buf, Bytes, BytesMut};
 use crabllm_core::{
     AnthropicContent, AnthropicMessage, AnthropicRequest, AnthropicResponse, AnthropicSystem,
-    AnthropicTool, AnthropicUsage, ChatCompletionChunk, ChatCompletionRequest,
+    AnthropicTool, AnthropicUsage, BoxStream, ChatCompletionChunk, ChatCompletionRequest,
     ChatCompletionResponse, Choice, ChunkChoice, ContentBlock, DEFAULT_MAX_TOKENS, Delta, Error,
-    FinishReason, FunctionCallDelta, Message, Role, Stop, ThinkingConfig, ToolCallDelta,
+    FinishReason, FunctionCallDelta, Message, Provider, Role, Stop, ThinkingConfig, ToolCallDelta,
     ToolChoice, ToolType, Usage,
 };
-use futures::stream::{self, Stream};
+use futures::stream::{self, Stream, StreamExt};
 use serde::Deserialize;
+
+const THINKING_BETA: &str = "interleaved-thinking-2025-05-14";
+
+#[derive(Debug, Clone)]
+pub struct AnthropicProvider {
+    pub(crate) client: HttpClient,
+    pub(crate) base_url: String,
+    pub(crate) api_key: String,
+}
+
+impl Provider for AnthropicProvider {
+    async fn chat_completion(
+        &self,
+        request: &ChatCompletionRequest,
+    ) -> Result<ChatCompletionResponse, Error> {
+        chat_completion(&self.client, &self.base_url, &self.api_key, request).await
+    }
+
+    async fn chat_completion_stream(
+        &self,
+        request: &ChatCompletionRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        let s = chat_completion_stream(
+            &self.client,
+            &self.base_url,
+            &self.api_key,
+            request,
+            &request.model,
+        )
+        .await?;
+        Ok(s.boxed())
+    }
+
+    async fn anthropic_messages(
+        &self,
+        request: &AnthropicRequest,
+    ) -> Result<AnthropicResponse, Error> {
+        let body =
+            crabllm_core::json::to_vec(request).map_err(|e| Error::Internal(e.to_string()))?;
+        let url = format!("{}/messages", self.base_url.trim_end_matches('/'));
+        let auth = auth_headers(&self.api_key);
+        let mut headers: Vec<(&str, &str)> = vec![
+            ("anthropic-version", "2023-06-01"),
+            ("content-type", "application/json"),
+        ];
+        for (k, v) in &auth {
+            headers.push((k, v.as_str()));
+        }
+        if request.thinking.is_some() {
+            headers.push(("anthropic-beta", THINKING_BETA));
+        }
+        let resp = self
+            .client
+            .post(&url, &headers, body.into())
+            .await
+            .map_err(|e| Error::Internal(e.to_string()))?;
+        if resp.status >= 400 {
+            let body = String::from_utf8_lossy(&resp.body).into_owned();
+            return Err(Error::Provider {
+                status: resp.status,
+                body,
+            });
+        }
+        crabllm_core::json::from_slice(&resp.body).map_err(|e| Error::Internal(e.to_string()))
+    }
+
+    async fn anthropic_messages_stream(
+        &self,
+        request: &AnthropicRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        let mut req = request.clone();
+        req.stream = Some(true);
+        let body = crabllm_core::json::to_vec(&req).map_err(|e| Error::Internal(e.to_string()))?;
+        let url = format!("{}/messages", self.base_url.trim_end_matches('/'));
+        let auth = auth_headers(&self.api_key);
+        let mut headers: Vec<(&str, &str)> = vec![
+            ("anthropic-version", "2023-06-01"),
+            ("content-type", "application/json"),
+        ];
+        for (k, v) in &auth {
+            headers.push((k, v.as_str()));
+        }
+        if request.thinking.is_some() {
+            headers.push(("anthropic-beta", THINKING_BETA));
+        }
+        let byte_stream = self.client.post_stream(&url, &headers, body.into()).await?;
+        Ok(anthropic_sse_stream(byte_stream, request.model.clone()).boxed())
+    }
+
+    fn is_anthropic_compat(&self) -> bool {
+        true
+    }
+
+    async fn anthropic_messages_raw(&self, raw_body: Bytes) -> Result<Bytes, Error> {
+        anthropic_messages_raw(&self.client, &self.base_url, &self.api_key, raw_body).await
+    }
+
+    async fn anthropic_messages_stream_raw(
+        &self,
+        raw_body: Bytes,
+    ) -> Result<crabllm_core::ByteStream, Error> {
+        anthropic_messages_stream(&self.client, &self.base_url, &self.api_key, raw_body).await
+    }
+}
 
 pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com/v1";
 const OAUTH_TOKEN_PREFIX: &str = "sk-ant-oat";
@@ -77,14 +181,14 @@ struct SseContentBlock {
 // ── Translation ──
 
 fn translate_request(request: &ChatCompletionRequest) -> AnthropicRequest {
-    let mut system_parts = Vec::new();
+    let mut system_blocks = Vec::new();
     let mut messages = Vec::new();
 
     for msg in &request.messages {
         if msg.role == Role::System {
             for block in &msg.content {
-                if let ContentBlock::Text { text } = block {
-                    system_parts.push(text.clone());
+                if let ContentBlock::Text { .. } = block {
+                    system_blocks.push(block.clone());
                 }
             }
         } else {
@@ -95,10 +199,28 @@ fn translate_request(request: &ChatCompletionRequest) -> AnthropicRequest {
         }
     }
 
-    let system = if system_parts.is_empty() {
+    let system = if system_blocks.is_empty() {
         None
+    } else if system_blocks.iter().any(|b| {
+        matches!(
+            b,
+            ContentBlock::Text {
+                cache_control: Some(_),
+                ..
+            }
+        )
+    }) {
+        Some(AnthropicSystem::Blocks(system_blocks))
     } else {
-        Some(AnthropicSystem::Text(system_parts.join("\n")))
+        let joined = system_blocks
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        Some(AnthropicSystem::Text(joined))
     };
 
     // B2: When tool_choice is "none", omit tools and tool_choice entirely.
@@ -225,10 +347,6 @@ fn translate_response(resp: AnthropicResponse) -> ChatCompletionResponse {
     }
 }
 
-pub fn not_implemented(name: &str) -> Error {
-    Error::Internal(format!("anthropic {name} not supported"))
-}
-
 // ── Auth helpers ──
 
 fn is_oauth_token(api_key: &str) -> bool {
@@ -281,6 +399,25 @@ pub async fn anthropic_messages_raw(
     Ok(resp.body)
 }
 
+/// Stream raw Anthropic SSE bytes from the Messages API.
+pub async fn anthropic_messages_stream(
+    client: &HttpClient,
+    base_url: &str,
+    api_key: &str,
+    raw_body: Bytes,
+) -> Result<ByteStream, Error> {
+    let url = format!("{}/messages", base_url.trim_end_matches('/'));
+    let auth = auth_headers(api_key);
+    let mut headers: Vec<(&str, &str)> = vec![
+        ("anthropic-version", "2023-06-01"),
+        ("content-type", "application/json"),
+    ];
+    for (k, v) in &auth {
+        headers.push((k, v.as_str()));
+    }
+    client.post_stream(&url, &headers, raw_body).await
+}
+
 pub async fn chat_completion(
     client: &HttpClient,
     base_url: &str,
@@ -307,7 +444,7 @@ pub async fn chat_completion(
         headers.push((k, v.as_str()));
     }
     if anthropic_req.thinking.is_some() {
-        headers.push(("anthropic-beta", "interleaved-thinking-2025-05-14"));
+        headers.push(("anthropic-beta", THINKING_BETA));
     }
     let resp = client
         .post(&url, &headers, body.into())
@@ -350,7 +487,7 @@ pub async fn chat_completion_stream(
         headers.push((k, v.as_str()));
     }
     if anthropic_req.thinking.is_some() {
-        headers.push(("anthropic-beta", "interleaved-thinking-2025-05-14"));
+        headers.push(("anthropic-beta", THINKING_BETA));
     }
     let byte_stream = client.post_stream(&url, &headers, body.into()).await?;
 
@@ -369,7 +506,7 @@ struct StreamState {
     is_thinking_block: bool,
 }
 
-fn anthropic_sse_stream(
+pub(crate) fn anthropic_sse_stream(
     byte_stream: ByteStream,
     model: String,
 ) -> impl Stream<Item = Result<ChatCompletionChunk, Error>> {
