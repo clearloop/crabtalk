@@ -307,6 +307,24 @@ impl Provider for MlxProvider {
         drop(tx);
         Ok(rx.boxed())
     }
+
+    async fn anthropic_messages(
+        &self,
+        request: &crabllm_core::AnthropicRequest,
+    ) -> Result<crabllm_core::AnthropicResponse, Error> {
+        let chat_req = ChatCompletionRequest::from(request.clone());
+        let resp = self.chat_completion(&chat_req).await?;
+        crabllm_core::AnthropicResponse::try_from(resp)
+    }
+
+    async fn anthropic_messages_stream(
+        &self,
+        request: &crabllm_core::AnthropicRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        let mut chat_req = ChatCompletionRequest::from(request.clone());
+        chat_req.stream = Some(true);
+        self.chat_completion_stream(&chat_req).await
+    }
 }
 
 // ---------- shared helpers (copied from model.rs, which is being deleted) ----------

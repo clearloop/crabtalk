@@ -11,6 +11,8 @@ use crabllm_core::{
 use futures::stream::{self, Stream, StreamExt};
 use serde::Deserialize;
 
+const THINKING_BETA: &str = "interleaved-thinking-2025-05-14";
+
 #[derive(Debug, Clone)]
 pub struct AnthropicProvider {
     pub(crate) client: HttpClient,
@@ -39,6 +41,66 @@ impl Provider for AnthropicProvider {
         )
         .await?;
         Ok(s.boxed())
+    }
+
+    async fn anthropic_messages(
+        &self,
+        request: &AnthropicRequest,
+    ) -> Result<AnthropicResponse, Error> {
+        let body =
+            crabllm_core::json::to_vec(request).map_err(|e| Error::Internal(e.to_string()))?;
+        let url = format!("{}/messages", self.base_url.trim_end_matches('/'));
+        let auth = auth_headers(&self.api_key);
+        let mut headers: Vec<(&str, &str)> = vec![
+            ("anthropic-version", "2023-06-01"),
+            ("content-type", "application/json"),
+        ];
+        for (k, v) in &auth {
+            headers.push((k, v.as_str()));
+        }
+        if request.thinking.is_some() {
+            headers.push(("anthropic-beta", THINKING_BETA));
+        }
+        let resp = self
+            .client
+            .post(&url, &headers, body.into())
+            .await
+            .map_err(|e| Error::Internal(e.to_string()))?;
+        if resp.status >= 400 {
+            let body = String::from_utf8_lossy(&resp.body).into_owned();
+            return Err(Error::Provider {
+                status: resp.status,
+                body,
+            });
+        }
+        crabllm_core::json::from_slice(&resp.body).map_err(|e| Error::Internal(e.to_string()))
+    }
+
+    async fn anthropic_messages_stream(
+        &self,
+        request: &AnthropicRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        let mut req = request.clone();
+        req.stream = Some(true);
+        let body =
+            crabllm_core::json::to_vec(&req).map_err(|e| Error::Internal(e.to_string()))?;
+        let url = format!("{}/messages", self.base_url.trim_end_matches('/'));
+        let auth = auth_headers(&self.api_key);
+        let mut headers: Vec<(&str, &str)> = vec![
+            ("anthropic-version", "2023-06-01"),
+            ("content-type", "application/json"),
+        ];
+        for (k, v) in &auth {
+            headers.push((k, v.as_str()));
+        }
+        if request.thinking.is_some() {
+            headers.push(("anthropic-beta", THINKING_BETA));
+        }
+        let byte_stream = self
+            .client
+            .post_stream(&url, &headers, body.into())
+            .await?;
+        Ok(anthropic_sse_stream(byte_stream, request.model.clone()).boxed())
     }
 
     fn is_anthropic_compat(&self) -> bool {
@@ -381,7 +443,7 @@ pub async fn chat_completion(
         headers.push((k, v.as_str()));
     }
     if anthropic_req.thinking.is_some() {
-        headers.push(("anthropic-beta", "interleaved-thinking-2025-05-14"));
+        headers.push(("anthropic-beta", THINKING_BETA));
     }
     let resp = client
         .post(&url, &headers, body.into())
@@ -424,7 +486,7 @@ pub async fn chat_completion_stream(
         headers.push((k, v.as_str()));
     }
     if anthropic_req.thinking.is_some() {
-        headers.push(("anthropic-beta", "interleaved-thinking-2025-05-14"));
+        headers.push(("anthropic-beta", THINKING_BETA));
     }
     let byte_stream = client.post_stream(&url, &headers, body.into()).await?;
 
@@ -443,7 +505,7 @@ struct StreamState {
     is_thinking_block: bool,
 }
 
-fn anthropic_sse_stream(
+pub(crate) fn anthropic_sse_stream(
     byte_stream: ByteStream,
     model: String,
 ) -> impl Stream<Item = Result<ChatCompletionChunk, Error>> {

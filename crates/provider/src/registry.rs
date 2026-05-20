@@ -1,9 +1,9 @@
 use crate::{RemoteProvider, make_client};
 use bytes::Bytes;
 use crabllm_core::{
-    AudioSpeechRequest, BoxStream, ChatCompletionChunk, ChatCompletionRequest,
-    ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse, Error, GatewayConfig,
-    ImageRequest, MultipartField, Provider, ProviderConfig, ProviderKind,
+    AnthropicRequest, AnthropicResponse, AudioSpeechRequest, BoxStream, ChatCompletionChunk,
+    ChatCompletionRequest, ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse, Error,
+    GatewayConfig, ImageRequest, MultipartField, Provider, ProviderConfig, ProviderKind,
 };
 use rand::Rng;
 use std::{collections::HashMap, sync::Arc, time::Duration};
@@ -342,6 +342,28 @@ impl<P: Provider> Provider for ProviderRegistry<P> {
             .dispatch(model)
             .ok_or_else(|| model_not_registered(model))?;
         deployment.provider.chat_completion_stream(request).await
+    }
+
+    async fn anthropic_messages(
+        &self,
+        request: &AnthropicRequest,
+    ) -> Result<AnthropicResponse, Error> {
+        let model = self.resolve(&request.model);
+        let deployment = self
+            .dispatch(model)
+            .ok_or_else(|| model_not_registered(model))?;
+        deployment.provider.anthropic_messages(request).await
+    }
+
+    async fn anthropic_messages_stream(
+        &self,
+        request: &AnthropicRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        let model = self.resolve(&request.model);
+        let deployment = self
+            .dispatch(model)
+            .ok_or_else(|| model_not_registered(model))?;
+        deployment.provider.anthropic_messages_stream(request).await
     }
 
     async fn embedding(&self, request: &EmbeddingRequest) -> Result<EmbeddingResponse, Error> {

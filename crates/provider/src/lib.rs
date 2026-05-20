@@ -1,8 +1,8 @@
 use bytes::Bytes;
 use crabllm_core::{
-    AudioSpeechRequest, BoxStream, ChatCompletionChunk, ChatCompletionRequest,
-    ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse, Error, ImageRequest,
-    MultipartField, Provider, ProviderConfig, ProviderKind,
+    AnthropicRequest, AnthropicResponse, AudioSpeechRequest, BoxStream, ChatCompletionChunk,
+    ChatCompletionRequest, ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse, Error,
+    ImageRequest, MultipartField, Provider, ProviderConfig, ProviderKind,
 };
 pub use registry::{Deployment, ProviderRegistry};
 
@@ -44,6 +44,28 @@ mod bedrock_stub {
             crabllm_core::Error,
         > {
             Err(crabllm_core::Error::not_implemented("bedrock streaming"))
+        }
+
+        async fn anthropic_messages(
+            &self,
+            _request: &crabllm_core::AnthropicRequest,
+        ) -> Result<crabllm_core::AnthropicResponse, crabllm_core::Error> {
+            Err(crabllm_core::Error::not_implemented("bedrock anthropic"))
+        }
+
+        async fn anthropic_messages_stream(
+            &self,
+            _request: &crabllm_core::AnthropicRequest,
+        ) -> Result<
+            crabllm_core::BoxStream<
+                'static,
+                Result<crabllm_core::ChatCompletionChunk, crabllm_core::Error>,
+            >,
+            crabllm_core::Error,
+        > {
+            Err(crabllm_core::Error::not_implemented(
+                "bedrock anthropic streaming",
+            ))
         }
     }
 }
@@ -243,6 +265,34 @@ impl Provider for RemoteProvider {
             Self::Google(p) => p.chat_completion_stream(request).await,
             Self::Bedrock(p) => p.chat_completion_stream(request).await,
             Self::Azure(p) => p.chat_completion_stream(request).await,
+        }
+    }
+
+    async fn anthropic_messages(
+        &self,
+        request: &AnthropicRequest,
+    ) -> Result<AnthropicResponse, Error> {
+        match self {
+            Self::Openai(p) => p.anthropic_messages(request).await,
+            Self::Anthropic(p) => p.anthropic_messages(request).await,
+            Self::Deepseek(p) => p.anthropic_messages(request).await,
+            Self::Google(p) => p.anthropic_messages(request).await,
+            Self::Bedrock(p) => p.anthropic_messages(request).await,
+            Self::Azure(p) => p.anthropic_messages(request).await,
+        }
+    }
+
+    async fn anthropic_messages_stream(
+        &self,
+        request: &AnthropicRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        match self {
+            Self::Openai(p) => p.anthropic_messages_stream(request).await,
+            Self::Anthropic(p) => p.anthropic_messages_stream(request).await,
+            Self::Deepseek(p) => p.anthropic_messages_stream(request).await,
+            Self::Google(p) => p.anthropic_messages_stream(request).await,
+            Self::Bedrock(p) => p.anthropic_messages_stream(request).await,
+            Self::Azure(p) => p.anthropic_messages_stream(request).await,
         }
     }
 

@@ -2,9 +2,9 @@ use crate::provider::schema;
 use crate::{ByteStream, HttpClient};
 use bytes::{Buf, BytesMut};
 use crabllm_core::{
-    BoxStream, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice,
-    ChunkChoice, ContentBlock, Delta, Error, FinishReason, FunctionCallDelta, Message, Provider,
-    Role, ToolCallDelta, ToolResultContent, Usage,
+    AnthropicRequest, AnthropicResponse, BoxStream, ChatCompletionChunk, ChatCompletionRequest,
+    ChatCompletionResponse, Choice, ChunkChoice, ContentBlock, Delta, Error, FinishReason,
+    FunctionCallDelta, Message, Provider, Role, ToolCallDelta, ToolResultContent, Usage,
 };
 use futures::stream::{self, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -30,6 +30,24 @@ impl Provider for GoogleProvider {
         let s =
             chat_completion_stream(&self.client, &self.api_key, request, &request.model).await?;
         Ok(s.boxed())
+    }
+
+    async fn anthropic_messages(
+        &self,
+        request: &AnthropicRequest,
+    ) -> Result<AnthropicResponse, Error> {
+        let chat_req = ChatCompletionRequest::from(request.clone());
+        let resp = self.chat_completion(&chat_req).await?;
+        AnthropicResponse::try_from(resp)
+    }
+
+    async fn anthropic_messages_stream(
+        &self,
+        request: &AnthropicRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        let mut chat_req = ChatCompletionRequest::from(request.clone());
+        chat_req.stream = Some(true);
+        self.chat_completion_stream(&chat_req).await
     }
 }
 

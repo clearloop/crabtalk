@@ -62,6 +62,20 @@ impl Provider for FakeProvider {
     ) -> Result<BoxStream<'static, Result<crabllm_core::ChatCompletionChunk, Error>>, Error> {
         Err(Error::not_implemented("stream"))
     }
+
+    async fn anthropic_messages(
+        &self,
+        _request: &crabllm_core::AnthropicRequest,
+    ) -> Result<crabllm_core::AnthropicResponse, Error> {
+        Err(Error::not_implemented("anthropic_messages"))
+    }
+
+    async fn anthropic_messages_stream(
+        &self,
+        _request: &crabllm_core::AnthropicRequest,
+    ) -> Result<BoxStream<'static, Result<crabllm_core::ChatCompletionChunk, Error>>, Error> {
+        Err(Error::not_implemented("anthropic_messages_stream"))
+    }
 }
 
 struct FakeStorage;

@@ -18,6 +18,7 @@ pub use types::{
 };
 
 mod config;
+mod convert;
 mod error;
 mod extension;
 pub mod json;

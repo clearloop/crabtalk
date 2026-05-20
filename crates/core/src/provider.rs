@@ -49,18 +49,13 @@ pub trait Provider: Send + Sync {
 
     fn anthropic_messages(
         &self,
-        _request: &AnthropicRequest,
-    ) -> impl Future<Output = Result<AnthropicResponse, Error>> + Send {
-        async { Err(Error::not_implemented("anthropic_messages")) }
-    }
+        request: &AnthropicRequest,
+    ) -> impl Future<Output = Result<AnthropicResponse, Error>> + Send;
 
     fn anthropic_messages_stream(
         &self,
-        _request: &AnthropicRequest,
-    ) -> impl Future<Output = Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error>> + Send
-    {
-        async { Err(Error::not_implemented("anthropic_messages_stream")) }
-    }
+        request: &AnthropicRequest,
+    ) -> impl Future<Output = Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error>> + Send;
 
     fn embedding(
         &self,

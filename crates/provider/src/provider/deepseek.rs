@@ -1,9 +1,9 @@
-use crate::provider::openai;
+use crate::provider::{anthropic::anthropic_sse_stream, openai};
 use crate::{ByteStream, HttpClient};
 use bytes::Bytes;
 use crabllm_core::{
-    BoxStream, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse,
-    EmbeddingRequest, EmbeddingResponse, Error, Provider,
+    AnthropicRequest, AnthropicResponse, BoxStream, ChatCompletionChunk, ChatCompletionRequest,
+    ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse, Error, Provider,
 };
 use futures::stream::StreamExt;
 
@@ -41,6 +41,32 @@ impl Provider for DeepseekProvider {
 
     async fn embedding(&self, request: &EmbeddingRequest) -> Result<EmbeddingResponse, Error> {
         openai::embedding(&self.client, &self.openai_base_url, &self.api_key, request).await
+    }
+
+    async fn anthropic_messages(
+        &self,
+        request: &AnthropicRequest,
+    ) -> Result<AnthropicResponse, Error> {
+        let body =
+            crabllm_core::json::to_vec(request).map_err(|e| Error::Internal(e.to_string()))?;
+        let resp_bytes =
+            anthropic_messages_raw(&self.client, &self.anthropic_base_url, &self.api_key, body.into())
+                .await?;
+        crabllm_core::json::from_slice(&resp_bytes).map_err(|e| Error::Internal(e.to_string()))
+    }
+
+    async fn anthropic_messages_stream(
+        &self,
+        request: &AnthropicRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        let mut req = request.clone();
+        req.stream = Some(true);
+        let body =
+            crabllm_core::json::to_vec(&req).map_err(|e| Error::Internal(e.to_string()))?;
+        let byte_stream =
+            anthropic_messages_stream(&self.client, &self.anthropic_base_url, &self.api_key, body.into())
+                .await?;
+        Ok(anthropic_sse_stream(byte_stream, request.model.clone()).boxed())
     }
 
     fn is_openai_compat(&self) -> bool {

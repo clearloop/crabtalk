@@ -2,9 +2,9 @@ use crate::HttpClient;
 use crate::provider::openai;
 use bytes::Bytes;
 use crabllm_core::{
-    AudioSpeechRequest, BoxStream, ChatCompletionChunk, ChatCompletionRequest,
-    ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse, Error, ImageRequest,
-    MultipartField, Provider,
+    AnthropicRequest, AnthropicResponse, AudioSpeechRequest, BoxStream, ChatCompletionChunk,
+    ChatCompletionRequest, ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse, Error,
+    ImageRequest, MultipartField, Provider,
 };
 use futures::stream::{Stream, StreamExt};
 
@@ -72,6 +72,24 @@ impl Provider for AzureProvider {
             &boundary,
         )
         .await
+    }
+
+    async fn anthropic_messages(
+        &self,
+        request: &AnthropicRequest,
+    ) -> Result<AnthropicResponse, Error> {
+        let chat_req = ChatCompletionRequest::from(request.clone());
+        let resp = self.chat_completion(&chat_req).await?;
+        AnthropicResponse::try_from(resp)
+    }
+
+    async fn anthropic_messages_stream(
+        &self,
+        request: &AnthropicRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        let mut chat_req = ChatCompletionRequest::from(request.clone());
+        chat_req.stream = Some(true);
+        self.chat_completion_stream(&chat_req).await
     }
 
     fn is_openai_compat(&self) -> bool {
