@@ -43,6 +43,7 @@ struct AnthropicPeek {
     stream: Option<bool>,
 }
 
+#[allow(clippy::result_large_err)]
 fn deserialize_request(raw_body: &[u8]) -> Result<crabllm_core::ChatCompletionRequest, Response> {
     let anthropic_req: crabllm_core::AnthropicRequest = crabllm_core::json::from_slice(raw_body)
         .map_err(|e| {
