@@ -203,13 +203,15 @@ pub async fn query_usage(
 
     let result: Vec<UsageEntry> = entries
         .into_iter()
-        .map(|((name, model), (prompt, completion, cache_hit))| UsageEntry {
-            name,
-            model,
-            prompt_tokens: prompt,
-            completion_tokens: completion,
-            cache_hit_tokens: cache_hit,
-        })
+        .map(
+            |((name, model), (prompt, completion, cache_hit))| UsageEntry {
+                name,
+                model,
+                prompt_tokens: prompt,
+                completion_tokens: completion,
+                cache_hit_tokens: cache_hit,
+            },
+        )
         .collect();
 
     Json(result)

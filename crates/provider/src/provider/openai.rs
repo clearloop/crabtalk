@@ -26,7 +26,8 @@ impl Provider for OpenaiProvider {
         &self,
         request: &ChatCompletionRequest,
     ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
-        let s = chat_completion_stream(&self.client, &self.base_url, &self.api_key, request).await?;
+        let s =
+            chat_completion_stream(&self.client, &self.base_url, &self.api_key, request).await?;
         Ok(s.boxed())
     }
 
@@ -38,10 +39,7 @@ impl Provider for OpenaiProvider {
         image_generation(&self.client, &self.base_url, &self.api_key, request).await
     }
 
-    async fn audio_speech(
-        &self,
-        request: &AudioSpeechRequest,
-    ) -> Result<(Bytes, String), Error> {
+    async fn audio_speech(&self, request: &AudioSpeechRequest) -> Result<(Bytes, String), Error> {
         audio_speech(&self.client, &self.base_url, &self.api_key, request).await
     }
 
@@ -76,11 +74,7 @@ impl Provider for OpenaiProvider {
         true
     }
 
-    async fn chat_completion_raw(
-        &self,
-        _model: &str,
-        raw_body: Bytes,
-    ) -> Result<Bytes, Error> {
+    async fn chat_completion_raw(&self, _model: &str, raw_body: Bytes) -> Result<Bytes, Error> {
         chat_completion_raw(&self.client, &self.base_url, &self.api_key, raw_body).await
     }
 }

@@ -338,7 +338,9 @@ impl Message {
     /// Iterator over tool-use blocks.
     pub fn tool_uses(&self) -> impl Iterator<Item = (&str, &str, &serde_json::Value)> {
         self.content.iter().filter_map(|b| match b {
-            ContentBlock::ToolUse { id, name, input, .. } => Some((id.as_str(), name.as_str(), input)),
+            ContentBlock::ToolUse {
+                id, name, input, ..
+            } => Some((id.as_str(), name.as_str(), input)),
             _ => None,
         })
     }

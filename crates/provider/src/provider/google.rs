@@ -274,7 +274,9 @@ fn translate_request(request: &ChatCompletionRequest) -> GeminiRequest {
                             thought_signature: None,
                         });
                     }
-                    ContentBlock::ToolUse { id, name, input, .. } => {
+                    ContentBlock::ToolUse {
+                        id, name, input, ..
+                    } => {
                         let signature = extract_signature_from_id(id)
                             .map(|s| s.to_string())
                             .or_else(|| {
@@ -594,7 +596,9 @@ fn gemini_sse_stream(
                     for block in blocks {
                         match block {
                             ContentBlock::Text { text: t, .. } => text.push_str(&t),
-                            ContentBlock::ToolUse { id, name, input, .. } => {
+                            ContentBlock::ToolUse {
+                                id, name, input, ..
+                            } => {
                                 tool_call_deltas.push(ToolCallDelta {
                                     index: tool_call_deltas.len() as u32,
                                     id: Some(id),

@@ -1,7 +1,7 @@
 use crate::{
     AnthropicContent, AnthropicContentBlock, AnthropicRequest, AnthropicResponse, AnthropicSystem,
-    AnthropicUsage, ChatCompletionRequest, ChatCompletionResponse, Error, FinishReason, FunctionDef,
-    Message, Role, Stop, Tool, ToolChoice, ToolType,
+    AnthropicUsage, ChatCompletionRequest, ChatCompletionResponse, Error, FinishReason,
+    FunctionDef, Message, Role, Stop, Tool, ToolChoice, ToolType,
 };
 
 impl From<AnthropicRequest> for ChatCompletionRequest {

@@ -82,8 +82,7 @@ impl Provider for AnthropicProvider {
     ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
         let mut req = request.clone();
         req.stream = Some(true);
-        let body =
-            crabllm_core::json::to_vec(&req).map_err(|e| Error::Internal(e.to_string()))?;
+        let body = crabllm_core::json::to_vec(&req).map_err(|e| Error::Internal(e.to_string()))?;
         let url = format!("{}/messages", self.base_url.trim_end_matches('/'));
         let auth = auth_headers(&self.api_key);
         let mut headers: Vec<(&str, &str)> = vec![
@@ -96,10 +95,7 @@ impl Provider for AnthropicProvider {
         if request.thinking.is_some() {
             headers.push(("anthropic-beta", THINKING_BETA));
         }
-        let byte_stream = self
-            .client
-            .post_stream(&url, &headers, body.into())
-            .await?;
+        let byte_stream = self.client.post_stream(&url, &headers, body.into()).await?;
         Ok(anthropic_sse_stream(byte_stream, request.model.clone()).boxed())
     }
 
@@ -205,10 +201,15 @@ fn translate_request(request: &ChatCompletionRequest) -> AnthropicRequest {
 
     let system = if system_blocks.is_empty() {
         None
-    } else if system_blocks
-        .iter()
-        .any(|b| matches!(b, ContentBlock::Text { cache_control: Some(_), .. }))
-    {
+    } else if system_blocks.iter().any(|b| {
+        matches!(
+            b,
+            ContentBlock::Text {
+                cache_control: Some(_),
+                ..
+            }
+        )
+    }) {
         Some(AnthropicSystem::Blocks(system_blocks))
     } else {
         let joined = system_blocks

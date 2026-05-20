@@ -3,15 +3,15 @@ use crabllm_core::{
     ChatCompletionRequest, ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse,
     ImageRequest, ModelList,
 };
-use utoipa::{PartialSchema, ToSchema};
 use utoipa::openapi::{
-    ContentBuilder, HttpMethod, InfoBuilder, PathItem, Paths, PathsBuilder, Ref,
-    RefOr, Required, ResponseBuilder, Responses, ResponsesBuilder, Tag,
+    ContentBuilder, HttpMethod, InfoBuilder, PathItem, Paths, PathsBuilder, Ref, RefOr, Required,
+    ResponseBuilder, Responses, ResponsesBuilder, Tag,
     path::{OperationBuilder, ParameterBuilder, ParameterIn},
     request_body::{RequestBody, RequestBodyBuilder},
     schema::{ComponentsBuilder, KnownFormat, ObjectBuilder, SchemaFormat, SchemaType, Type},
     security::{HttpAuthScheme, HttpBuilder, SecurityRequirement, SecurityScheme},
 };
+use utoipa::{PartialSchema, ToSchema};
 
 use crate::admin::{CreateKeyRequest, KeyResponse, KeySummary};
 use crate::admin_providers::{CreateProviderRequest, ProviderSummary};
@@ -258,7 +258,9 @@ pub fn spec() -> utoipa::openapi::OpenApi {
     doc
 }
 
-fn base(schemas: Vec<(String, RefOr<utoipa::openapi::schema::Schema>)>) -> utoipa::openapi::OpenApi {
+fn base(
+    schemas: Vec<(String, RefOr<utoipa::openapi::schema::Schema>)>,
+) -> utoipa::openapi::OpenApi {
     let components = ComponentsBuilder::new()
         .schemas_from_iter(schemas)
         .security_scheme(

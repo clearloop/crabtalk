@@ -42,11 +42,9 @@ struct AnthropicPeek {
     stream: Option<bool>,
 }
 
-fn deserialize_request(
-    raw_body: &[u8],
-) -> Result<crabllm_core::ChatCompletionRequest, Response> {
-    let anthropic_req: crabllm_core::AnthropicRequest =
-        crabllm_core::json::from_slice(raw_body).map_err(|e| {
+fn deserialize_request(raw_body: &[u8]) -> Result<crabllm_core::ChatCompletionRequest, Response> {
+    let anthropic_req: crabllm_core::AnthropicRequest = crabllm_core::json::from_slice(raw_body)
+        .map_err(|e| {
             (
                 StatusCode::BAD_REQUEST,
                 Json(ApiError::new(e.to_string(), "invalid_request_error")),
@@ -405,17 +403,18 @@ async fn handle_raw_anthropic<S: Storage, P: Provider>(
         .await
         {
             Ok(resp_bytes) => {
-                let (pt, ct, ch) = crabllm_core::json::from_slice::<AnthropicUsagePeek>(&resp_bytes)
-                    .ok()
-                    .and_then(|p| p.usage)
-                    .map(|u| {
-                        (
-                            u.input_tokens,
-                            u.output_tokens,
-                            u.cache_read_input_tokens.unwrap_or(0),
-                        )
-                    })
-                    .unwrap_or((0, 0, 0));
+                let (pt, ct, ch) =
+                    crabllm_core::json::from_slice::<AnthropicUsagePeek>(&resp_bytes)
+                        .ok()
+                        .and_then(|p| p.usage)
+                        .map(|u| {
+                            (
+                                u.input_tokens,
+                                u.output_tokens,
+                                u.cache_read_input_tokens.unwrap_or(0),
+                            )
+                        })
+                        .unwrap_or((0, 0, 0));
                 if pt > 0 || ct > 0 {
                     record_tokens(&ctx, pt, ct);
                 }
@@ -479,8 +478,7 @@ fn raw_anthropic_stream_response<S: Storage + 'static, P: Provider + 'static>(
                 &tokens_out_c,
                 &cache_hit_c,
             );
-            if tokens_in_c.load(Ordering::Relaxed) > 0 || tokens_out_c.load(Ordering::Relaxed) > 0
-            {
+            if tokens_in_c.load(Ordering::Relaxed) > 0 || tokens_out_c.load(Ordering::Relaxed) > 0 {
                 record_tokens(
                     &ctx_c,
                     tokens_in_c.load(Ordering::Relaxed),
@@ -513,7 +511,15 @@ fn raw_anthropic_stream_response<S: Storage + 'static, P: Provider + 'static>(
     let finalized = futures::stream::unfold(
         (
             Box::pin(sse_stream),
-            Some((state, ctx, tokens_in, tokens_out, cache_hit, errored, first_error)),
+            Some((
+                state,
+                ctx,
+                tokens_in,
+                tokens_out,
+                cache_hit,
+                errored,
+                first_error,
+            )),
         ),
         |(mut inner, mut slot)| async move {
             match inner.next().await {

@@ -26,17 +26,20 @@ impl crabllm_core::Provider for BedrockProvider {
         &self,
         request: &ChatCompletionRequest,
     ) -> Result<ChatCompletionResponse, Error> {
-        chat_completion(&self.client, &self.region, &self.access_key, &self.secret_key, request)
-            .await
+        chat_completion(
+            &self.client,
+            &self.region,
+            &self.access_key,
+            &self.secret_key,
+            request,
+        )
+        .await
     }
 
     async fn chat_completion_stream(
         &self,
         request: &ChatCompletionRequest,
-    ) -> Result<
-        crabllm_core::BoxStream<'static, Result<ChatCompletionChunk, Error>>,
-        Error,
-    > {
+    ) -> Result<crabllm_core::BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
         let s = chat_completion_stream(
             &self.client,
             &self.region,
@@ -200,13 +203,13 @@ fn translate_request(request: &ChatCompletionRequest) -> ConverseRequest {
                 .iter()
                 .filter_map(|b| match b {
                     CoreContentBlock::Text { text, .. } => Some(ContentBlock::Text(text.clone())),
-                    CoreContentBlock::ToolUse { id, name, input, .. } => {
-                        Some(ContentBlock::ToolUse {
-                            tool_use_id: id.clone(),
-                            name: name.clone(),
-                            input: input.clone(),
-                        })
-                    }
+                    CoreContentBlock::ToolUse {
+                        id, name, input, ..
+                    } => Some(ContentBlock::ToolUse {
+                        tool_use_id: id.clone(),
+                        name: name.clone(),
+                        input: input.clone(),
+                    }),
                     CoreContentBlock::ToolResult {
                         tool_use_id,
                         content,

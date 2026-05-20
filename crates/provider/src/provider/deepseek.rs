@@ -49,9 +49,13 @@ impl Provider for DeepseekProvider {
     ) -> Result<AnthropicResponse, Error> {
         let body =
             crabllm_core::json::to_vec(request).map_err(|e| Error::Internal(e.to_string()))?;
-        let resp_bytes =
-            anthropic_messages_raw(&self.client, &self.anthropic_base_url, &self.api_key, body.into())
-                .await?;
+        let resp_bytes = anthropic_messages_raw(
+            &self.client,
+            &self.anthropic_base_url,
+            &self.api_key,
+            body.into(),
+        )
+        .await?;
         crabllm_core::json::from_slice(&resp_bytes).map_err(|e| Error::Internal(e.to_string()))
     }
 
@@ -61,11 +65,14 @@ impl Provider for DeepseekProvider {
     ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
         let mut req = request.clone();
         req.stream = Some(true);
-        let body =
-            crabllm_core::json::to_vec(&req).map_err(|e| Error::Internal(e.to_string()))?;
-        let byte_stream =
-            anthropic_messages_stream(&self.client, &self.anthropic_base_url, &self.api_key, body.into())
-                .await?;
+        let body = crabllm_core::json::to_vec(&req).map_err(|e| Error::Internal(e.to_string()))?;
+        let byte_stream = anthropic_messages_stream(
+            &self.client,
+            &self.anthropic_base_url,
+            &self.api_key,
+            body.into(),
+        )
+        .await?;
         Ok(anthropic_sse_stream(byte_stream, request.model.clone()).boxed())
     }
 
@@ -77,26 +84,32 @@ impl Provider for DeepseekProvider {
         true
     }
 
-    async fn chat_completion_raw(
-        &self,
-        _model: &str,
-        raw_body: Bytes,
-    ) -> Result<Bytes, Error> {
+    async fn chat_completion_raw(&self, _model: &str, raw_body: Bytes) -> Result<Bytes, Error> {
         openai::chat_completion_raw(&self.client, &self.openai_base_url, &self.api_key, raw_body)
             .await
     }
 
     async fn anthropic_messages_raw(&self, raw_body: Bytes) -> Result<Bytes, Error> {
-        anthropic_messages_raw(&self.client, &self.anthropic_base_url, &self.api_key, raw_body)
-            .await
+        anthropic_messages_raw(
+            &self.client,
+            &self.anthropic_base_url,
+            &self.api_key,
+            raw_body,
+        )
+        .await
     }
 
     async fn anthropic_messages_stream_raw(
         &self,
         raw_body: Bytes,
     ) -> Result<crabllm_core::ByteStream, Error> {
-        anthropic_messages_stream(&self.client, &self.anthropic_base_url, &self.api_key, raw_body)
-            .await
+        anthropic_messages_stream(
+            &self.client,
+            &self.anthropic_base_url,
+            &self.api_key,
+            raw_body,
+        )
+        .await
     }
 }
 

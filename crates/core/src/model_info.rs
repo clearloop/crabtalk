@@ -26,7 +26,9 @@ impl ModelInfo {
         let Some(ref p) = self.pricing else {
             return 0.0;
         };
-        let cache_hit_rate = p.cache_hit_cost_per_million.unwrap_or(p.prompt_cost_per_million);
+        let cache_hit_rate = p
+            .cache_hit_cost_per_million
+            .unwrap_or(p.prompt_cost_per_million);
         let non_cached = prompt_tokens.saturating_sub(cache_hit_tokens);
         (non_cached as f64 * p.prompt_cost_per_million
             + cache_hit_tokens as f64 * cache_hit_rate

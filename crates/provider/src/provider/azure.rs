@@ -21,8 +21,14 @@ impl Provider for AzureProvider {
         &self,
         request: &ChatCompletionRequest,
     ) -> Result<ChatCompletionResponse, Error> {
-        chat_completion(&self.client, &self.base_url, &self.api_key, &self.api_version, request)
-            .await
+        chat_completion(
+            &self.client,
+            &self.base_url,
+            &self.api_key,
+            &self.api_version,
+            request,
+        )
+        .await
     }
 
     async fn chat_completion_stream(
@@ -41,19 +47,36 @@ impl Provider for AzureProvider {
     }
 
     async fn embedding(&self, request: &EmbeddingRequest) -> Result<EmbeddingResponse, Error> {
-        embedding(&self.client, &self.base_url, &self.api_key, &self.api_version, request).await
+        embedding(
+            &self.client,
+            &self.base_url,
+            &self.api_key,
+            &self.api_version,
+            request,
+        )
+        .await
     }
 
     async fn image_generation(&self, request: &ImageRequest) -> Result<(Bytes, String), Error> {
-        image_generation(&self.client, &self.base_url, &self.api_key, &self.api_version, request)
-            .await
+        image_generation(
+            &self.client,
+            &self.base_url,
+            &self.api_key,
+            &self.api_version,
+            request,
+        )
+        .await
     }
 
-    async fn audio_speech(
-        &self,
-        request: &AudioSpeechRequest,
-    ) -> Result<(Bytes, String), Error> {
-        audio_speech(&self.client, &self.base_url, &self.api_key, &self.api_version, request).await
+    async fn audio_speech(&self, request: &AudioSpeechRequest) -> Result<(Bytes, String), Error> {
+        audio_speech(
+            &self.client,
+            &self.base_url,
+            &self.api_key,
+            &self.api_version,
+            request,
+        )
+        .await
     }
 
     async fn audio_transcription(
@@ -96,11 +119,7 @@ impl Provider for AzureProvider {
         true
     }
 
-    async fn chat_completion_raw(
-        &self,
-        model: &str,
-        raw_body: Bytes,
-    ) -> Result<Bytes, Error> {
+    async fn chat_completion_raw(&self, model: &str, raw_body: Bytes) -> Result<Bytes, Error> {
         chat_completion_raw(
             &self.client,
             &self.base_url,

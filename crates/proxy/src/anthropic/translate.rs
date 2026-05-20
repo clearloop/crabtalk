@@ -5,7 +5,9 @@
 //! in `crabllm_core`. This module re-exports thin wrappers so existing handler
 //! call-sites compile unchanged.
 
-use crabllm_core::{AnthropicRequest, AnthropicResponse, ChatCompletionRequest, ChatCompletionResponse, Error};
+use crabllm_core::{
+    AnthropicRequest, AnthropicResponse, ChatCompletionRequest, ChatCompletionResponse, Error,
+};
 
 pub fn to_chat_completion(req: AnthropicRequest) -> ChatCompletionRequest {
     ChatCompletionRequest::from(req)
