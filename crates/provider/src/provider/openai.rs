@@ -1,10 +1,71 @@
 use crate::{ByteStream, HttpClient};
 use bytes::{Buf, Bytes, BytesMut};
 use crabllm_core::{
-    AudioSpeechRequest, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse,
-    EmbeddingRequest, EmbeddingResponse, Error, ImageRequest,
+    AudioSpeechRequest, BoxStream, ChatCompletionChunk, ChatCompletionRequest,
+    ChatCompletionResponse, EmbeddingRequest, EmbeddingResponse, Error, ImageRequest,
+    MultipartField, Provider,
 };
-use futures::stream::{self, Stream};
+use futures::stream::{self, Stream, StreamExt};
+
+#[derive(Debug, Clone)]
+pub struct OpenaiProvider {
+    pub(crate) client: HttpClient,
+    pub(crate) base_url: String,
+    pub(crate) api_key: String,
+}
+
+impl Provider for OpenaiProvider {
+    async fn chat_completion(
+        &self,
+        request: &ChatCompletionRequest,
+    ) -> Result<ChatCompletionResponse, Error> {
+        chat_completion(&self.client, &self.base_url, &self.api_key, request).await
+    }
+
+    async fn chat_completion_stream(
+        &self,
+        request: &ChatCompletionRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        let s = chat_completion_stream(&self.client, &self.base_url, &self.api_key, request).await?;
+        Ok(s.boxed())
+    }
+
+    async fn embedding(&self, request: &EmbeddingRequest) -> Result<EmbeddingResponse, Error> {
+        embedding(&self.client, &self.base_url, &self.api_key, request).await
+    }
+
+    async fn image_generation(&self, request: &ImageRequest) -> Result<(Bytes, String), Error> {
+        image_generation(&self.client, &self.base_url, &self.api_key, request).await
+    }
+
+    async fn audio_speech(
+        &self,
+        request: &AudioSpeechRequest,
+    ) -> Result<(Bytes, String), Error> {
+        audio_speech(&self.client, &self.base_url, &self.api_key, request).await
+    }
+
+    async fn audio_transcription(
+        &self,
+        _model: &str,
+        fields: &[MultipartField],
+    ) -> Result<(Bytes, String), Error> {
+        let (body, boundary) = crate::rebuild_multipart(fields);
+        audio_transcription(&self.client, &self.base_url, &self.api_key, body, &boundary).await
+    }
+
+    fn is_openai_compat(&self) -> bool {
+        true
+    }
+
+    async fn chat_completion_raw(
+        &self,
+        _model: &str,
+        raw_body: Bytes,
+    ) -> Result<Bytes, Error> {
+        chat_completion_raw(&self.client, &self.base_url, &self.api_key, raw_body).await
+    }
+}
 
 /// Send a non-streaming chat completion to an OpenAI-compatible endpoint.
 pub async fn chat_completion(

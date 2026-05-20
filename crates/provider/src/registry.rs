@@ -282,12 +282,12 @@ fn validate_provider(name: &str, config: &ProviderConfig) -> Result<(), Error> {
             }
             Ok(())
         }
-        #[cfg(not(feature = "provider-bedrock"))]
+        #[cfg(not(feature = "bedrock"))]
         ProviderKind::Bedrock => Err(Error::Config(format!(
             "provider '{name}' uses kind = 'bedrock', which requires the \
-             'provider-bedrock' feature to be enabled in the crabllm binary"
+             'bedrock' feature to be enabled in the crabllm binary"
         ))),
-        #[cfg(feature = "provider-bedrock")]
+        #[cfg(feature = "bedrock")]
         ProviderKind::Bedrock => {
             if is_blank(&config.region) {
                 return Err(Error::Config(format!(

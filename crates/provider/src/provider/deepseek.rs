@@ -1,11 +1,77 @@
+use crate::provider::openai;
 use crate::{ByteStream, HttpClient};
 use bytes::Bytes;
-use crabllm_core::Error;
+use crabllm_core::{
+    BoxStream, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse,
+    EmbeddingRequest, EmbeddingResponse, Error, Provider,
+};
+use futures::stream::StreamExt;
 
 pub const DEFAULT_BASE_URL: &str = "https://api.deepseek.com";
 
-pub fn not_implemented(name: &str) -> Error {
-    Error::Internal(format!("deepseek {name} not supported"))
+#[derive(Debug, Clone)]
+pub struct DeepseekProvider {
+    pub(crate) client: HttpClient,
+    pub(crate) openai_base_url: String,
+    pub(crate) anthropic_base_url: String,
+    pub(crate) api_key: String,
+}
+
+impl Provider for DeepseekProvider {
+    async fn chat_completion(
+        &self,
+        request: &ChatCompletionRequest,
+    ) -> Result<ChatCompletionResponse, Error> {
+        openai::chat_completion(&self.client, &self.openai_base_url, &self.api_key, request).await
+    }
+
+    async fn chat_completion_stream(
+        &self,
+        request: &ChatCompletionRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        let s = openai::chat_completion_stream(
+            &self.client,
+            &self.openai_base_url,
+            &self.api_key,
+            request,
+        )
+        .await?;
+        Ok(s.boxed())
+    }
+
+    async fn embedding(&self, request: &EmbeddingRequest) -> Result<EmbeddingResponse, Error> {
+        openai::embedding(&self.client, &self.openai_base_url, &self.api_key, request).await
+    }
+
+    fn is_openai_compat(&self) -> bool {
+        true
+    }
+
+    fn is_anthropic_compat(&self) -> bool {
+        true
+    }
+
+    async fn chat_completion_raw(
+        &self,
+        _model: &str,
+        raw_body: Bytes,
+    ) -> Result<Bytes, Error> {
+        openai::chat_completion_raw(&self.client, &self.openai_base_url, &self.api_key, raw_body)
+            .await
+    }
+
+    async fn anthropic_messages_raw(&self, raw_body: Bytes) -> Result<Bytes, Error> {
+        anthropic_messages_raw(&self.client, &self.anthropic_base_url, &self.api_key, raw_body)
+            .await
+    }
+
+    async fn anthropic_messages_stream_raw(
+        &self,
+        raw_body: Bytes,
+    ) -> Result<crabllm_core::ByteStream, Error> {
+        anthropic_messages_stream(&self.client, &self.anthropic_base_url, &self.api_key, raw_body)
+            .await
+    }
 }
 
 /// Forward raw Anthropic-format JSON bytes to DeepSeek's Anthropic-

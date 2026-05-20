@@ -2,12 +2,36 @@ use crate::provider::schema;
 use crate::{ByteStream, HttpClient};
 use bytes::{Buf, BytesMut};
 use crabllm_core::{
-    ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice,
-    ContentBlock, Delta, Error, FinishReason, FunctionCallDelta, Message, Role, ToolCallDelta,
-    ToolResultContent, Usage,
+    BoxStream, ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice,
+    ChunkChoice, ContentBlock, Delta, Error, FinishReason, FunctionCallDelta, Message, Provider,
+    Role, ToolCallDelta, ToolResultContent, Usage,
 };
-use futures::stream::{self, Stream};
+use futures::stream::{self, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone)]
+pub struct GoogleProvider {
+    pub(crate) client: HttpClient,
+    pub(crate) api_key: String,
+}
+
+impl Provider for GoogleProvider {
+    async fn chat_completion(
+        &self,
+        request: &ChatCompletionRequest,
+    ) -> Result<ChatCompletionResponse, Error> {
+        chat_completion(&self.client, &self.api_key, request).await
+    }
+
+    async fn chat_completion_stream(
+        &self,
+        request: &ChatCompletionRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        let s =
+            chat_completion_stream(&self.client, &self.api_key, request, &request.model).await?;
+        Ok(s.boxed())
+    }
+}
 
 const BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
 
@@ -433,10 +457,6 @@ fn translate_response(resp: GeminiResponse, model: &str) -> ChatCompletionRespon
         usage: resp.usage_metadata.map(Usage::from),
         system_fingerprint: None,
     }
-}
-
-pub fn not_implemented(name: &str) -> Error {
-    Error::Internal(format!("google {name} not supported"))
 }
 
 // ── Public API ──

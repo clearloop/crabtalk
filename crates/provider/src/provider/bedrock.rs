@@ -1,37 +1,57 @@
-use crabllm_core::Error;
-
-pub fn not_implemented(name: &str) -> Error {
-    Error::Internal(format!("bedrock {name} not yet implemented"))
-}
-
-#[cfg(feature = "provider-bedrock")]
-pub(crate) use self::sigv4::sign_headers;
-
-// ── Converse API (feature-gated) ──
-
-#[cfg(feature = "provider-bedrock")]
 use crate::provider::schema;
-#[cfg(feature = "provider-bedrock")]
 use crate::{ByteStream, HttpClient};
-#[cfg(feature = "provider-bedrock")]
 use crabllm_core::{
     ChatCompletionChunk, ChatCompletionRequest, ChatCompletionResponse, Choice, ChunkChoice,
-    ContentBlock as CoreContentBlock, Delta, FinishReason, FunctionCallDelta, Message, Role,
-    ToolCallDelta, Usage,
+    ContentBlock as CoreContentBlock, Delta, Error, FinishReason, FunctionCallDelta, Message, Role,
+    ToolCallDelta, ToolType, Usage,
 };
-#[cfg(feature = "provider-bedrock")]
-use futures::stream::{self, Stream};
-#[cfg(feature = "provider-bedrock")]
+use futures::stream::{self, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 
-#[cfg(feature = "provider-bedrock")]
+pub(crate) use self::sigv4::sign_headers;
+
 const BASE_URL: &str = "https://bedrock-runtime";
-#[cfg(feature = "provider-bedrock")]
 const DEFAULT_MAX_TOKENS: u32 = 4096;
+
+#[derive(Debug, Clone)]
+pub struct BedrockProvider {
+    pub(crate) client: HttpClient,
+    pub(crate) region: String,
+    pub(crate) access_key: String,
+    pub(crate) secret_key: String,
+}
+
+impl crabllm_core::Provider for BedrockProvider {
+    async fn chat_completion(
+        &self,
+        request: &ChatCompletionRequest,
+    ) -> Result<ChatCompletionResponse, Error> {
+        chat_completion(&self.client, &self.region, &self.access_key, &self.secret_key, request)
+            .await
+    }
+
+    async fn chat_completion_stream(
+        &self,
+        request: &ChatCompletionRequest,
+    ) -> Result<
+        crabllm_core::BoxStream<'static, Result<ChatCompletionChunk, Error>>,
+        Error,
+    > {
+        let s = chat_completion_stream(
+            &self.client,
+            &self.region,
+            &self.access_key,
+            &self.secret_key,
+            request,
+            &request.model,
+        )
+        .await?;
+        Ok(s.boxed())
+    }
+}
 
 // ── Bedrock Converse request types ──
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ConverseRequest {
@@ -44,14 +64,12 @@ struct ConverseRequest {
     tool_config: Option<ToolConfig>,
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Serialize)]
 struct ConverseMessage {
     role: String,
     content: Vec<ContentBlock>,
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 enum ContentBlock {
@@ -67,20 +85,17 @@ enum ContentBlock {
     },
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 enum ToolResultContent {
     Text(String),
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Serialize)]
 struct SystemBlock {
     text: String,
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct InferenceConfig {
@@ -94,21 +109,18 @@ struct InferenceConfig {
     stop_sequences: Option<Vec<String>>,
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ToolConfig {
     tools: Vec<ToolDef>,
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ToolDef {
     tool_spec: ToolSpec,
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ToolSpec {
@@ -118,7 +130,6 @@ struct ToolSpec {
     input_schema: InputSchema,
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Serialize)]
 struct InputSchema {
     json: serde_json::Value,
@@ -126,7 +137,6 @@ struct InputSchema {
 
 // ── Bedrock Converse response types ──
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ConverseResponse {
@@ -135,19 +145,16 @@ struct ConverseResponse {
     usage: Option<ConverseUsage>,
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Deserialize)]
 struct ConverseOutput {
     message: Option<ConverseOutputMessage>,
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Deserialize)]
 struct ConverseOutputMessage {
     content: Vec<ContentBlock>,
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ConverseUsage {
@@ -158,7 +165,6 @@ struct ConverseUsage {
 
 // ── Translation ──
 
-#[cfg(feature = "provider-bedrock")]
 fn translate_request(request: &ChatCompletionRequest) -> ConverseRequest {
     let mut system_blocks = Vec::new();
     let mut messages = Vec::new();
@@ -176,11 +182,13 @@ fn translate_request(request: &ChatCompletionRequest) -> ConverseRequest {
                 .iter()
                 .filter_map(|b| match b {
                     CoreContentBlock::Text { text, .. } => Some(ContentBlock::Text(text.clone())),
-                    CoreContentBlock::ToolUse { id, name, input, .. } => Some(ContentBlock::ToolUse {
-                        tool_use_id: id.clone(),
-                        name: name.clone(),
-                        input: input.clone(),
-                    }),
+                    CoreContentBlock::ToolUse { id, name, input, .. } => {
+                        Some(ContentBlock::ToolUse {
+                            tool_use_id: id.clone(),
+                            name: name.clone(),
+                            input: input.clone(),
+                        })
+                    }
                     CoreContentBlock::ToolResult {
                         tool_use_id,
                         content,
@@ -261,7 +269,6 @@ fn translate_request(request: &ChatCompletionRequest) -> ConverseRequest {
     }
 }
 
-#[cfg(feature = "provider-bedrock")]
 fn map_stop_reason(stop_reason: &Option<String>) -> Option<FinishReason> {
     stop_reason.as_ref().map(|r| match r.as_str() {
         "end_turn" | "stop_sequence" => FinishReason::Stop,
@@ -271,7 +278,6 @@ fn map_stop_reason(stop_reason: &Option<String>) -> Option<FinishReason> {
     })
 }
 
-#[cfg(feature = "provider-bedrock")]
 fn translate_response(resp: ConverseResponse, model: &str) -> ChatCompletionResponse {
     let mut blocks = Vec::new();
 
@@ -316,9 +322,7 @@ fn translate_response(resp: ConverseResponse, model: &str) -> ChatCompletionResp
             prompt_tokens: u.input_tokens,
             completion_tokens: u.output_tokens,
             total_tokens: u.total_tokens,
-            completion_tokens_details: None,
-            prompt_cache_hit_tokens: None,
-            prompt_cache_miss_tokens: None,
+            ..Default::default()
         }),
         system_fingerprint: None,
     }
@@ -326,7 +330,6 @@ fn translate_response(resp: ConverseResponse, model: &str) -> ChatCompletionResp
 
 // ── Public API ──
 
-#[cfg(feature = "provider-bedrock")]
 pub async fn chat_completion(
     client: &HttpClient,
     region: &str,
@@ -368,7 +371,6 @@ pub async fn chat_completion(
 
 // ── Streaming types ──
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StreamEvent {
@@ -384,21 +386,17 @@ struct StreamEvent {
     metadata: Option<MetadataEvent>,
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Deserialize)]
 struct MessageStartEvent {
     role: Role,
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ContentBlockStartEvent {
-    content_block_index: u32,
     start: Option<BlockStart>,
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BlockStart {
@@ -408,16 +406,12 @@ struct BlockStart {
     name: Option<String>,
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ContentBlockDeltaEvent {
-    #[allow(dead_code)]
-    content_block_index: u32,
     delta: Option<BlockDelta>,
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BlockDelta {
@@ -427,20 +421,17 @@ struct BlockDelta {
     tool_use: Option<ToolUseDelta>,
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Deserialize)]
 struct ToolUseDelta {
     input: String,
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MessageStopEvent {
     stop_reason: Option<String>,
 }
 
-#[cfg(feature = "provider-bedrock")]
 #[derive(Deserialize)]
 struct MetadataEvent {
     usage: Option<ConverseUsage>,
@@ -448,9 +439,7 @@ struct MetadataEvent {
 
 // ── Event-stream binary frame parser ──
 
-#[cfg(feature = "provider-bedrock")]
 fn parse_event_payload(buf: &mut Vec<u8>) -> Option<Vec<u8>> {
-    // AWS event-stream: prelude is 12 bytes (total_len u32be, headers_len u32be, prelude_crc u32be).
     if buf.len() < 12 {
         return None;
     }
@@ -461,9 +450,7 @@ fn parse_event_payload(buf: &mut Vec<u8>) -> Option<Vec<u8>> {
     }
 
     let headers_len = u32::from_be_bytes([buf[4], buf[5], buf[6], buf[7]]) as usize;
-    // Payload starts after prelude (12 bytes) + headers.
     let payload_start = 12 + headers_len;
-    // Payload ends 4 bytes before message end (message CRC).
     let payload_end = total_len - 4;
 
     let payload = if payload_start < payload_end {
@@ -472,14 +459,12 @@ fn parse_event_payload(buf: &mut Vec<u8>) -> Option<Vec<u8>> {
         Vec::new()
     };
 
-    // Consume the frame from the buffer.
     buf.drain(..total_len);
     Some(payload)
 }
 
 // ── Streaming public API ──
 
-#[cfg(feature = "provider-bedrock")]
 pub async fn chat_completion_stream(
     client: &HttpClient,
     region: &str,
@@ -507,13 +492,23 @@ pub async fn chat_completion_stream(
     Ok(bedrock_event_stream(byte_stream, model))
 }
 
-#[cfg(feature = "provider-bedrock")]
 struct BedrockStreamState {
     chunk_idx: u64,
     tool_call_idx: u32,
 }
 
-#[cfg(feature = "provider-bedrock")]
+impl BedrockStreamState {
+    fn next_chunk(&mut self, model: &str) -> ChatCompletionChunk {
+        self.chunk_idx += 1;
+        ChatCompletionChunk {
+            id: format!("chatcmpl-{}", self.chunk_idx),
+            object: "chat.completion.chunk".to_string(),
+            model: model.to_string(),
+            ..Default::default()
+        }
+    }
+}
+
 fn bedrock_event_stream(
     byte_stream: ByteStream,
     model: String,
@@ -539,180 +534,100 @@ fn bedrock_event_stream(
                         Err(_) => continue,
                     };
 
-                    // messageStart → emit role chunk.
                     if let Some(ms) = event.message_start {
-                        state.chunk_idx += 1;
-                        let chunk = ChatCompletionChunk {
-                            id: format!("chatcmpl-{}", state.chunk_idx),
-                            object: "chat.completion.chunk".to_string(),
-                            created: 0,
-                            model: model.clone(),
-                            choices: vec![ChunkChoice {
-                                index: 0,
-                                delta: Delta {
-                                    role: Some(ms.role),
-                                    content: None,
-                                    tool_calls: None,
-                                    reasoning_content: None,
-                                },
-                                finish_reason: None,
-                                logprobs: None,
-                            }],
-                            usage: None,
-                            system_fingerprint: None,
-                        };
+                        let mut chunk = state.next_chunk(&model);
+                        chunk.choices = vec![ChunkChoice {
+                            delta: Delta {
+                                role: Some(ms.role),
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        }];
                         return Some((Ok(chunk), (byte_stream, buf, model, state)));
                     }
 
-                    // contentBlockStart with toolUse → emit initial tool call delta.
                     if let Some(cbs) = event.content_block_start {
                         if let Some(start) = &cbs.start
                             && start.tool_use_id.is_some()
                         {
-                            state.chunk_idx += 1;
                             let tool_idx = state.tool_call_idx;
                             state.tool_call_idx += 1;
-                            let chunk = ChatCompletionChunk {
-                                id: format!("chatcmpl-{}", state.chunk_idx),
-                                object: "chat.completion.chunk".to_string(),
-                                created: 0,
-                                model: model.clone(),
-                                choices: vec![ChunkChoice {
-                                    index: 0,
-                                    delta: Delta {
-                                        role: None,
-                                        content: None,
-                                        tool_calls: Some(vec![ToolCallDelta {
-                                            index: tool_idx,
-                                            id: start.tool_use_id.clone(),
-                                            kind: Some(ToolType::Function),
-                                            function: Some(FunctionCallDelta {
-                                                name: start.name.clone(),
-                                                arguments: Some(String::new()),
-                                            }),
-                                        }]),
-                                        reasoning_content: None,
-                                    },
-                                    finish_reason: None,
-                                    logprobs: None,
-                                }],
-                                usage: None,
-                                system_fingerprint: None,
-                            };
+                            let mut chunk = state.next_chunk(&model);
+                            chunk.choices = vec![ChunkChoice {
+                                delta: Delta {
+                                    tool_calls: Some(vec![ToolCallDelta {
+                                        index: tool_idx,
+                                        id: start.tool_use_id.clone(),
+                                        kind: Some(ToolType::Function),
+                                        function: Some(FunctionCallDelta {
+                                            name: start.name.clone(),
+                                            arguments: Some(String::new()),
+                                        }),
+                                    }]),
+                                    ..Default::default()
+                                },
+                                ..Default::default()
+                            }];
                             return Some((Ok(chunk), (byte_stream, buf, model, state)));
                         }
-                        // Text block start — nothing to emit, wait for deltas.
-                        let _ = cbs.content_block_index;
                         continue;
                     }
 
-                    // contentBlockDelta → text or tool input.
                     if let Some(cbd) = event.content_block_delta {
                         if let Some(delta) = &cbd.delta {
                             if let Some(text) = &delta.text {
-                                state.chunk_idx += 1;
-                                let chunk = ChatCompletionChunk {
-                                    id: format!("chatcmpl-{}", state.chunk_idx),
-                                    object: "chat.completion.chunk".to_string(),
-                                    created: 0,
-                                    model: model.clone(),
-                                    choices: vec![ChunkChoice {
-                                        index: 0,
-                                        delta: Delta {
-                                            role: None,
-                                            content: Some(text.clone()),
-                                            tool_calls: None,
-                                            reasoning_content: None,
-                                        },
-                                        finish_reason: None,
-                                        logprobs: None,
-                                    }],
-                                    usage: None,
-                                    system_fingerprint: None,
-                                };
+                                let mut chunk = state.next_chunk(&model);
+                                chunk.choices = vec![ChunkChoice {
+                                    delta: Delta {
+                                        content: Some(text.clone()),
+                                        ..Default::default()
+                                    },
+                                    ..Default::default()
+                                }];
                                 return Some((Ok(chunk), (byte_stream, buf, model, state)));
                             }
                             if let Some(tu) = &delta.tool_use {
-                                state.chunk_idx += 1;
                                 let tool_idx = state.tool_call_idx.saturating_sub(1);
-                                let chunk = ChatCompletionChunk {
-                                    id: format!("chatcmpl-{}", state.chunk_idx),
-                                    object: "chat.completion.chunk".to_string(),
-                                    created: 0,
-                                    model: model.clone(),
-                                    choices: vec![ChunkChoice {
-                                        index: 0,
-                                        delta: Delta {
-                                            role: None,
-                                            content: None,
-                                            tool_calls: Some(vec![ToolCallDelta {
-                                                index: tool_idx,
-                                                id: None,
-                                                kind: None,
-                                                function: Some(FunctionCallDelta {
-                                                    name: None,
-                                                    arguments: Some(tu.input.clone()),
-                                                }),
-                                            }]),
-                                            reasoning_content: None,
-                                        },
-                                        finish_reason: None,
-                                        logprobs: None,
-                                    }],
-                                    usage: None,
-                                    system_fingerprint: None,
-                                };
+                                let mut chunk = state.next_chunk(&model);
+                                chunk.choices = vec![ChunkChoice {
+                                    delta: Delta {
+                                        tool_calls: Some(vec![ToolCallDelta {
+                                            index: tool_idx,
+                                            id: None,
+                                            kind: None,
+                                            function: Some(FunctionCallDelta {
+                                                name: None,
+                                                arguments: Some(tu.input.clone()),
+                                            }),
+                                        }]),
+                                        ..Default::default()
+                                    },
+                                    ..Default::default()
+                                }];
                                 return Some((Ok(chunk), (byte_stream, buf, model, state)));
                             }
                         }
                         continue;
                     }
 
-                    // messageStop → emit finish reason.
                     if let Some(ms) = event.message_stop {
-                        state.chunk_idx += 1;
-                        let chunk = ChatCompletionChunk {
-                            id: format!("chatcmpl-{}", state.chunk_idx),
-                            object: "chat.completion.chunk".to_string(),
-                            created: 0,
-                            model: model.clone(),
-                            choices: vec![ChunkChoice {
-                                index: 0,
-                                delta: Delta {
-                                    role: None,
-                                    content: None,
-                                    tool_calls: None,
-                                    reasoning_content: None,
-                                },
-                                finish_reason: map_stop_reason(&ms.stop_reason),
-                                logprobs: None,
-                            }],
-                            usage: None,
-                            system_fingerprint: None,
-                        };
+                        let mut chunk = state.next_chunk(&model);
+                        chunk.choices = vec![ChunkChoice {
+                            finish_reason: map_stop_reason(&ms.stop_reason),
+                            ..Default::default()
+                        }];
                         return Some((Ok(chunk), (byte_stream, buf, model, state)));
                     }
 
-                    // metadata → emit usage, then end stream.
                     if let Some(meta) = event.metadata {
                         if let Some(u) = meta.usage {
-                            state.chunk_idx += 1;
-                            let chunk = ChatCompletionChunk {
-                                id: format!("chatcmpl-{}", state.chunk_idx),
-                                object: "chat.completion.chunk".to_string(),
-                                created: 0,
-                                model: model.clone(),
-                                choices: vec![],
-                                usage: Some(Usage {
-                                    prompt_tokens: u.input_tokens,
-                                    completion_tokens: u.output_tokens,
-                                    total_tokens: u.total_tokens,
-                                    completion_tokens_details: None,
-                                    prompt_cache_hit_tokens: None,
-                                    prompt_cache_miss_tokens: None,
-                                }),
-                                system_fingerprint: None,
-                            };
+                            let mut chunk = state.next_chunk(&model);
+                            chunk.usage = Some(Usage {
+                                prompt_tokens: u.input_tokens,
+                                completion_tokens: u.output_tokens,
+                                total_tokens: u.total_tokens,
+                                ..Default::default()
+                            });
                             return Some((Ok(chunk), (byte_stream, buf, model, state)));
                         }
                         return None;
@@ -721,7 +636,6 @@ fn bedrock_event_stream(
                     continue;
                 }
 
-                // Need more data from the wire.
                 match byte_stream.next().await {
                     Some(Ok(bytes)) => buf.extend_from_slice(&bytes),
                     Some(Err(e)) => {
@@ -739,10 +653,8 @@ fn bedrock_event_stream(
 
 // ── SigV4 signing ──
 
-#[cfg(feature = "provider-bedrock")]
-#[allow(dead_code)]
 mod sigv4 {
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::{Digest, Sha256};
     use std::{
         fmt::Write,
@@ -751,9 +663,6 @@ mod sigv4 {
 
     const SERVICE: &str = "bedrock-runtime";
 
-    /// AWS SigV4 header builder. Returns a list of (name, value) header pairs
-    /// that must be sent with the request (content-type, host, x-amz-date,
-    /// x-amz-content-sha256, authorization).
     pub fn sign_headers(
         method: &str,
         url: &str,
@@ -772,29 +681,25 @@ mod sigv4 {
         let query = parsed.query().unwrap_or("");
 
         let now = now_utc();
-        let date_stamp = &now[..8]; // YYYYMMDD
-        let amz_date = &now; // YYYYMMDDTHHMMSSZ
+        let date_stamp = &now[..8];
+        let amz_date = &now;
 
         let content_hash = hex_sha256(body);
         let credential_scope = format!("{date_stamp}/{region}/{SERVICE}/aws4_request");
 
-        // Canonical headers (must be sorted).
         let canonical_headers = format!(
             "content-type:application/json\nhost:{host}\nx-amz-content-sha256:{content_hash}\nx-amz-date:{amz_date}\n"
         );
         let signed_headers = "content-type;host;x-amz-content-sha256;x-amz-date";
 
-        // Canonical request.
         let canonical_request = format!(
             "{method}\n{path}\n{query}\n{canonical_headers}\n{signed_headers}\n{content_hash}"
         );
         let canonical_request_hash = hex_sha256(canonical_request.as_bytes());
 
-        // String to sign.
         let string_to_sign =
             format!("AWS4-HMAC-SHA256\n{amz_date}\n{credential_scope}\n{canonical_request_hash}");
 
-        // Signing key derivation.
         let signing_key = derive_signing_key(secret_key, date_stamp, region);
         let signature = hex_hmac_sha256(&signing_key, string_to_sign.as_bytes());
 
@@ -851,7 +756,6 @@ mod sigv4 {
             .expect("time went backwards")
             .as_secs();
 
-        // Convert unix timestamp to YYYYMMDDTHHMMSSZ.
         let days = secs / 86400;
         let time_of_day = secs % 86400;
         let hours = time_of_day / 3600;
@@ -863,8 +767,6 @@ mod sigv4 {
         format!("{year:04}{month:02}{day:02}T{hours:02}{minutes:02}{seconds:02}Z")
     }
 
-    /// Convert days since 1970-01-01 to (year, month, day).
-    /// Algorithm from Howard Hinnant's date library.
     fn civil_from_days(days: i64) -> (i32, u32, u32) {
         let z = days + 719468;
         let era = if z >= 0 { z } else { z - 146096 } / 146097;

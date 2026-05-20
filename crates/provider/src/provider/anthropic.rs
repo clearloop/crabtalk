@@ -3,13 +3,59 @@ use crate::{ByteStream, HttpClient};
 use bytes::{Buf, Bytes, BytesMut};
 use crabllm_core::{
     AnthropicContent, AnthropicMessage, AnthropicRequest, AnthropicResponse, AnthropicSystem,
-    AnthropicTool, AnthropicUsage, ChatCompletionChunk, ChatCompletionRequest,
+    AnthropicTool, AnthropicUsage, BoxStream, ChatCompletionChunk, ChatCompletionRequest,
     ChatCompletionResponse, Choice, ChunkChoice, ContentBlock, DEFAULT_MAX_TOKENS, Delta, Error,
-    FinishReason, FunctionCallDelta, Message, Role, Stop, ThinkingConfig, ToolCallDelta,
+    FinishReason, FunctionCallDelta, Message, Provider, Role, Stop, ThinkingConfig, ToolCallDelta,
     ToolChoice, ToolType, Usage,
 };
-use futures::stream::{self, Stream};
+use futures::stream::{self, Stream, StreamExt};
 use serde::Deserialize;
+
+#[derive(Debug, Clone)]
+pub struct AnthropicProvider {
+    pub(crate) client: HttpClient,
+    pub(crate) base_url: String,
+    pub(crate) api_key: String,
+}
+
+impl Provider for AnthropicProvider {
+    async fn chat_completion(
+        &self,
+        request: &ChatCompletionRequest,
+    ) -> Result<ChatCompletionResponse, Error> {
+        chat_completion(&self.client, &self.base_url, &self.api_key, request).await
+    }
+
+    async fn chat_completion_stream(
+        &self,
+        request: &ChatCompletionRequest,
+    ) -> Result<BoxStream<'static, Result<ChatCompletionChunk, Error>>, Error> {
+        let s = chat_completion_stream(
+            &self.client,
+            &self.base_url,
+            &self.api_key,
+            request,
+            &request.model,
+        )
+        .await?;
+        Ok(s.boxed())
+    }
+
+    fn is_anthropic_compat(&self) -> bool {
+        true
+    }
+
+    async fn anthropic_messages_raw(&self, raw_body: Bytes) -> Result<Bytes, Error> {
+        anthropic_messages_raw(&self.client, &self.base_url, &self.api_key, raw_body).await
+    }
+
+    async fn anthropic_messages_stream_raw(
+        &self,
+        raw_body: Bytes,
+    ) -> Result<crabllm_core::ByteStream, Error> {
+        anthropic_messages_stream(&self.client, &self.base_url, &self.api_key, raw_body).await
+    }
+}
 
 pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com/v1";
 const OAUTH_TOKEN_PREFIX: &str = "sk-ant-oat";
@@ -236,10 +282,6 @@ fn translate_response(resp: AnthropicResponse) -> ChatCompletionResponse {
         usage: Some(map_usage(&resp.usage)),
         system_fingerprint: None,
     }
-}
-
-pub fn not_implemented(name: &str) -> Error {
-    Error::Internal(format!("anthropic {name} not supported"))
 }
 
 // ── Auth helpers ──
