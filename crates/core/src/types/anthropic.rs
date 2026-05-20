@@ -1,11 +1,11 @@
 //! Anthropic Messages API wire types.
 //!
 //! The canonical content-block types (`ContentBlock`, `ToolResultContent`) now
-//! live in `crate::types::chat`. This module re-exports them as
+//! live in `crate::types::openai`. This module re-exports them as
 //! `AnthropicContentBlock` for backward compatibility and defines the
 //! Anthropic-specific request/response envelope types.
 
-use crate::types::chat::ContentBlock;
+use crate::types::openai::ContentBlock;
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_MAX_TOKENS: u32 = 4096;
