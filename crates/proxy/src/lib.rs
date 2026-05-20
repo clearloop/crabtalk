@@ -25,6 +25,7 @@ pub mod admin_providers;
 pub mod anthropic;
 pub mod auth;
 pub mod ext;
+pub mod gemini;
 pub mod handlers;
 #[cfg(feature = "openapi")]
 pub mod openapi;
@@ -81,6 +82,10 @@ where
             post(handlers::chat_completions::<S, P>),
         )
         .route("/v1/messages", post(anthropic::messages::<S, P>))
+        .route(
+            "/v1beta/models/{model_action}",
+            post(gemini::generate_content::<S, P>),
+        )
         .route("/v1/embeddings", post(handlers::embeddings::<S, P>))
         .route(
             "/v1/images/generations",
