@@ -10,8 +10,9 @@ use crate::{
     anthropic::{from_chat_completion, to_anthropic_sse, to_chat_completion},
     auth::Principal,
     handlers::{
-        emit_usage, emit_usage_error, error_response, error_status, record_duration, record_tokens,
-        try_anthropic_stream_with_retries, try_chat_with_retries, try_stream_with_retries,
+        RequestOutcome, emit_usage, emit_usage_error, error_response, error_status,
+        record_duration, record_tokens, try_anthropic_stream_with_retries, try_chat_with_retries,
+        try_stream_with_retries,
     },
 };
 use axum::{
@@ -262,11 +263,13 @@ where
                                             &state,
                                             &ctx,
                                             ENDPOINT,
-                                            ti.load(Ordering::Relaxed),
-                                            to.load(Ordering::Relaxed),
-                                            ch.load(Ordering::Relaxed),
-                                            status,
-                                            error,
+                                            RequestOutcome {
+                                                tokens_in: ti.load(Ordering::Relaxed),
+                                                tokens_out: to.load(Ordering::Relaxed),
+                                                cache_hit_tokens: ch.load(Ordering::Relaxed),
+                                                status,
+                                                error,
+                                            },
                                         );
                                     }
                                     None
@@ -325,7 +328,7 @@ where
                     record_tokens(&ctx, pt, ct);
                 }
                 record_duration(&ctx, "2xx");
-                emit_usage(&state, &ctx, ENDPOINT, pt, ct, ch, 200, None);
+                emit_usage(&state, &ctx, ENDPOINT, RequestOutcome::ok(pt, ct, ch));
                 for ext in state.extensions.iter() {
                     ext.on_response(&ctx, &request, &resp).await;
                 }
@@ -419,7 +422,7 @@ async fn handle_raw_anthropic<S: Storage, P: Provider>(
                     record_tokens(&ctx, pt, ct);
                 }
                 record_duration(&ctx, "2xx");
-                emit_usage(state, &ctx, ENDPOINT, pt, ct, ch, 200, None);
+                emit_usage(state, &ctx, ENDPOINT, RequestOutcome::ok(pt, ct, ch));
                 return (
                     [(axum::http::header::CONTENT_TYPE, "application/json")],
                     resp_bytes,
@@ -534,11 +537,13 @@ fn raw_anthropic_stream_response<S: Storage + 'static, P: Provider + 'static>(
                             &state,
                             &ctx,
                             ENDPOINT,
-                            ti.load(Ordering::Relaxed),
-                            to.load(Ordering::Relaxed),
-                            ch.load(Ordering::Relaxed),
-                            status,
-                            error,
+                            RequestOutcome {
+                                tokens_in: ti.load(Ordering::Relaxed),
+                                tokens_out: to.load(Ordering::Relaxed),
+                                cache_hit_tokens: ch.load(Ordering::Relaxed),
+                                status,
+                                error,
+                            },
                         );
                     }
                     None
@@ -576,14 +581,14 @@ fn anthropic_raw_sse(
                         continue;
                     }
 
-                    if let Some(rest) = line.strip_prefix(b"event: ") {
-                        if let Ok(s) = std::str::from_utf8(rest) {
-                            event_name = Some(s.trim().to_string());
-                        }
-                    } else if let Some(rest) = line.strip_prefix(b"data: ") {
-                        if let Ok(s) = std::str::from_utf8(rest) {
-                            data = Some(s.trim().to_string());
-                        }
+                    if let Some(rest) = line.strip_prefix(b"event: ")
+                        && let Ok(s) = std::str::from_utf8(rest)
+                    {
+                        event_name = Some(s.trim().to_string());
+                    } else if let Some(rest) = line.strip_prefix(b"data: ")
+                        && let Ok(s) = std::str::from_utf8(rest)
+                    {
+                        data = Some(s.trim().to_string());
                     }
 
                     buf.advance(newline_pos + 1);
@@ -633,10 +638,10 @@ fn peek_anthropic_usage(
             }
         }
         "message_delta" => {
-            if let Some(usage) = val.get("usage") {
-                if let Some(n) = usage.get("output_tokens").and_then(|v| v.as_u64()) {
-                    tokens_out.store(n as u32, Ordering::Relaxed);
-                }
+            if let Some(usage) = val.get("usage")
+                && let Some(n) = usage.get("output_tokens").and_then(|v| v.as_u64())
+            {
+                tokens_out.store(n as u32, Ordering::Relaxed);
             }
         }
         _ => {}

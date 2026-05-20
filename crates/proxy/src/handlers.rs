@@ -62,15 +62,31 @@ pub(crate) fn record_tokens(ctx: &RequestContext, prompt: u32, completion: u32) 
     }
 }
 
+pub(crate) struct RequestOutcome {
+    pub tokens_in: u32,
+    pub tokens_out: u32,
+    pub cache_hit_tokens: u32,
+    pub status: u16,
+    pub error: Option<String>,
+}
+
+impl RequestOutcome {
+    pub fn ok(tokens_in: u32, tokens_out: u32, cache_hit_tokens: u32) -> Self {
+        Self {
+            tokens_in,
+            tokens_out,
+            cache_hit_tokens,
+            status: 200,
+            error: None,
+        }
+    }
+}
+
 pub(crate) fn emit_usage<S: Storage, P: Provider>(
     state: &AppState<S, P>,
     ctx: &RequestContext,
     endpoint: &'static str,
-    tokens_in: u32,
-    tokens_out: u32,
-    cache_hit_tokens: u32,
-    status: u16,
-    error: Option<String>,
+    outcome: RequestOutcome,
 ) {
     let Some(tx) = state.usage_events.as_ref() else {
         return;
@@ -82,12 +98,12 @@ pub(crate) fn emit_usage<S: Storage, P: Provider>(
         model: ctx.model.clone(),
         provider: ctx.provider.clone(),
         endpoint,
-        tokens_in,
-        tokens_out,
-        cache_hit_tokens,
+        tokens_in: outcome.tokens_in,
+        tokens_out: outcome.tokens_out,
+        cache_hit_tokens: outcome.cache_hit_tokens,
         duration_ms: ctx.started_at.elapsed().as_millis() as u64,
-        status,
-        error,
+        status: outcome.status,
+        error: outcome.error,
     });
 }
 
@@ -124,11 +140,13 @@ pub(crate) fn emit_usage_error<S: Storage, P: Provider>(
         state,
         ctx,
         endpoint,
-        0,
-        0,
-        0,
-        http_status_from_error(e),
-        Some(e.to_string()),
+        RequestOutcome {
+            tokens_in: 0,
+            tokens_out: 0,
+            cache_hit_tokens: 0,
+            status: http_status_from_error(e),
+            error: Some(e.to_string()),
+        },
     );
 }
 
@@ -350,11 +368,13 @@ where
                             &state_done,
                             &ctx_done,
                             "chat.completions",
-                            tokens_in_done.load(Ordering::Relaxed),
-                            tokens_out_done.load(Ordering::Relaxed),
-                            cache_hit_done.load(Ordering::Relaxed),
-                            status,
-                            error,
+                            RequestOutcome {
+                                tokens_in: tokens_in_done.load(Ordering::Relaxed),
+                                tokens_out: tokens_out_done.load(Ordering::Relaxed),
+                                cache_hit_tokens: cache_hit_done.load(Ordering::Relaxed),
+                                status,
+                                error,
+                            },
                         );
                         Ok::<_, std::convert::Infallible>(Event::default().data("[DONE]"))
                     });
@@ -405,7 +425,12 @@ where
                         record_tokens(&ctx, pt, ct);
                     }
                     record_duration(&ctx, "2xx");
-                    emit_usage(&state, &ctx, "chat.completions", pt, ct, ch, 200, None);
+                    emit_usage(
+                        &state,
+                        &ctx,
+                        "chat.completions",
+                        RequestOutcome::ok(pt, ct, ch),
+                    );
                     for ext in state.extensions.iter() {
                         ext.on_response(&ctx, &request, &resp).await;
                     }
@@ -477,7 +502,12 @@ async fn handle_raw_proxy<S: Storage, P: Provider>(
                     record_tokens(&ctx, pt, ct);
                 }
                 record_duration(&ctx, "2xx");
-                emit_usage(state, &ctx, "chat.completions", pt, ct, ch, 200, None);
+                emit_usage(
+                    state,
+                    &ctx,
+                    "chat.completions",
+                    RequestOutcome::ok(pt, ct, ch),
+                );
                 return (
                     [(axum::http::header::CONTENT_TYPE, "application/json")],
                     resp_bytes,
@@ -562,11 +592,7 @@ where
                     &state,
                     &ctx,
                     "embeddings",
-                    resp.usage.prompt_tokens,
-                    0,
-                    0,
-                    200,
-                    None,
+                    RequestOutcome::ok(resp.usage.prompt_tokens, 0, 0),
                 );
                 return Json(resp).into_response();
             }
@@ -717,7 +743,12 @@ where
         {
             Ok((bytes, content_type)) => {
                 record_duration(&ctx, "2xx");
-                emit_usage(&state, &ctx, "images.generations", 0, 0, 0, 200, None);
+                emit_usage(
+                    &state,
+                    &ctx,
+                    "images.generations",
+                    RequestOutcome::ok(0, 0, 0),
+                );
                 return ([(axum::http::header::CONTENT_TYPE, content_type)], bytes).into_response();
             }
             Err(e) => last_err = Some(e),
@@ -795,7 +826,7 @@ where
         {
             Ok((bytes, content_type)) => {
                 record_duration(&ctx, "2xx");
-                emit_usage(&state, &ctx, "audio.speech", 0, 0, 0, 200, None);
+                emit_usage(&state, &ctx, "audio.speech", RequestOutcome::ok(0, 0, 0));
                 return ([(axum::http::header::CONTENT_TYPE, content_type)], bytes).into_response();
             }
             Err(e) => last_err = Some(e),
@@ -923,7 +954,12 @@ where
         {
             Ok((bytes, content_type)) => {
                 record_duration(&ctx, "2xx");
-                emit_usage(&state, &ctx, "audio.transcriptions", 0, 0, 0, 200, None);
+                emit_usage(
+                    &state,
+                    &ctx,
+                    "audio.transcriptions",
+                    RequestOutcome::ok(0, 0, 0),
+                );
                 return ([(axum::http::header::CONTENT_TYPE, content_type)], bytes).into_response();
             }
             Err(e) => last_err = Some(e),
